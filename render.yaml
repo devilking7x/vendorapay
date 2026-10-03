@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: vendorapay
+    runtime: node
+    plan: free
+    region: singapore
+    repo: https://github.com/devilking7x/vendorapay
+    branch: main
+    buildCommand: >-
+      cd web && npm install --no-audit --no-fund && npm run build &&
+      cd ../server && npm install --no-audit --no-fund && npm run build &&
+      rm -rf web && mkdir -p web && cp -r ../web/dist/* web/
+    startCommand: cd server && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Demo mode ON: simulated PayPal end-to-end (UI shows "demo mode" badge).
+      # When PAYPAL_CLIENT_ID + PAYPAL_CLIENT_SECRET are set in the dashboard,
+      # flip this to "0" for real PayPal sandbox.
+      - key: PAYPAL_MOCK
+        value: "1"
+      # PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET: set in the Render dashboard
+      # from a free app at https://developer.paypal.com (never commit them,
+      # never paste them in chat).

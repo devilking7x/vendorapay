@@ -1,0 +1,1 @@
+{"name":"vendorapay","private":true,"scripts":{"build":"npm run build --prefix web && npm run build --prefix server","dev:server":"npm run dev --prefix server","dev:web":"npm run dev --prefix web","test:e2e":"node server/test/e2e.mjs","typecheck":"npm run typecheck --prefix server && npm run build --prefix web"},"version":"0.1.0"}

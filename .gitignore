@@ -1,0 +1,7 @@
+node_modules/
+dist/
+server/web/
+server/vendorapay-data.json
+.env
+*.log
+.DS_Store
