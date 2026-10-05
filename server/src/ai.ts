@@ -1,33 +1,40 @@
 // Vendora Pay AI — AI copy engine.
-// NVIDIA Nemotron via Nebius (OpenAI-compatible) when NEBIUS_API_KEY is set;
+// Any OpenAI-compatible API when AI_API_KEY is set (Nebius, xAI Grok, …);
 // otherwise an honest smart template. Every function reports which engine
 // produced the output so the UI can label it truthfully.
 
 import type { Invoice, Page, Product } from "./store.js";
 
-const NEBIUS_KEY = process.env.NEBIUS_API_KEY ?? "";
-const NEBIUS_URL =
-  process.env.NEBIUS_API_URL ?? "https://api.tokenfactory.nebius.com/v1";
-const NEBIUS_MODEL =
-  process.env.NEBIUS_MODEL ?? "nvidia/NVIDIA-Nemotron-Nano-9B-v2";
+// Generic provider config; NEBIUS_* kept as backward-compatible fallback.
+const AI_KEY = process.env.AI_API_KEY ?? process.env.NEBIUS_API_KEY ?? "";
+const AI_URL =
+  process.env.AI_API_URL ??
+  process.env.NEBIUS_API_URL ??
+  "https://api.tokenfactory.nebius.com/v1";
+const AI_MODEL =
+  process.env.AI_MODEL ??
+  process.env.NEBIUS_MODEL ??
+  "nvidia/NVIDIA-Nemotron-Nano-9B-v2";
+// Human-readable provider name for honest UI labeling, e.g. "nebius", "grok".
+export const AI_PROVIDER = process.env.AI_PROVIDER ?? "nebius";
 
-export type AIEngine = "nebius" | "template";
+export type AIEngine = string; // provider name, or "template"
 
 export function aiMode(): AIEngine {
-  return NEBIUS_KEY ? "nebius" : "template";
+  return AI_KEY ? AI_PROVIDER : "template";
 }
 
 async function aiJSON<T>(prompt: string): Promise<T | null> {
-  if (!NEBIUS_KEY) return null;
+  if (!AI_KEY) return null;
   try {
-    const res = await fetch(`${NEBIUS_URL}/chat/completions`, {
+    const res = await fetch(`${AI_URL}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${NEBIUS_KEY}`,
+        Authorization: `Bearer ${AI_KEY}`,
       },
       body: JSON.stringify({
-        model: NEBIUS_MODEL,
+        model: AI_MODEL,
         messages: [{ role: "user", content: prompt }],
         max_tokens: 900,
         temperature: 0.7,
@@ -181,7 +188,7 @@ export async function buildPageFromChat(
           .map((f) => ({ q: String(f.q ?? "").slice(0, 140), a: String(f.a ?? "").slice(0, 300) }))
           .filter((f) => f.q && f.a),
       })),
-      engine: "nebius",
+      engine: AI_PROVIDER,
     };
   }
   return templateBuild(description, sellerName, currency);
@@ -213,7 +220,7 @@ export async function draftInvoice(
         unitPrice: Math.max(0.5, Number(i.unitPrice) || product.price),
       })),
       notes: String(ai.notes ?? "").slice(0, 400),
-      engine: "nebius",
+      engine: AI_PROVIDER,
     };
   }
   return {
@@ -238,7 +245,7 @@ export async function draftReminder(
       `buyer owes ${invoice.amount} ${invoice.currency} for "${invoice.productName}", ` +
       `${overdueDays} days overdue. Friendly tone, one clear pay CTA, no threats. Return ONLY JSON: {"text":"..."}.`
   );
-  if (ai?.text) return { text: ai.text.slice(0, 600), engine: "nebius" };
+  if (ai?.text) return { text: ai.text.slice(0, 600), engine: AI_PROVIDER };
   return {
     text:
       `Hi! Just a friendly nudge — invoice for "${invoice.productName}" ` +
@@ -273,7 +280,7 @@ export async function suggestPrice(
       recommended: Math.round(Number(ai.recommended)),
       max: Math.max(1, Math.round(Number(ai.max) || 100)),
       rationale: String(ai.rationale ?? "").slice(0, 200),
-      engine: "nebius",
+      engine: AI_PROVIDER,
     };
   }
   // Template: heuristic bands by category (honest heuristic, labeled)
@@ -334,7 +341,7 @@ export async function supportAnswer(
       `. Buyer asks: "${question.slice(0, 200)}". Answer helpfully in 1-2 sentences from the product info only. ` +
       `If the info isn't there, say so honestly and suggest asking the seller. Return ONLY JSON: {"answer":"..."}.`
   );
-  if (ai?.answer) return { answer: ai.answer.slice(0, 400), engine: "nebius" };
+  if (ai?.answer) return { answer: ai.answer.slice(0, 400), engine: AI_PROVIDER };
   return {
     answer:
       "I don't have that detail on this page — try asking the seller directly, they usually reply fast!",
