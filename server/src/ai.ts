@@ -14,7 +14,7 @@ const AI_URL =
 const AI_MODEL =
   process.env.AI_MODEL ??
   process.env.NEBIUS_MODEL ??
-  "nvidia/NVIDIA-Nemotron-Nano-9B-v2";
+  "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B";
 // Human-readable provider name for honest UI labeling, e.g. "nebius", "grok".
 export const AI_PROVIDER = process.env.AI_PROVIDER ?? "nebius";
 
