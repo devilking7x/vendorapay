@@ -88,3 +88,28 @@ To go live: create a free REST API app at [developer.paypal.com](https://develop
 - Negotiates **only** inside the seller's `[minPrice, maxPrice]` — below-floor offers get a counter, above-ceiling offers are capped at the ceiling.
 - **Never creates a charge** on its own — `confirmSession` (explicit seller click) is the single code path that calls PayPal.
 - Every decision is logged as a reasoning step, visible in the UI.
+
+## Features (20)
+
+1. **AI Page Builder** — describe what you sell in chat, AI builds the payment page
+2. **Voice-to-Storefront** — speak your product description, get a page
+3. **Multi-Product Pages** — sell several products on one storefront
+4. **PayPal Checkout** — real Orders API (create → capture)
+5. **Smart Invoices** — PayPal Invoicing API (draft → send)
+6. **Subscriptions** — recurring billing plans via PayPal
+7. **Agentic Salesperson** — AI negotiates with buyers within YOUR price bounds
+8. **Reasoning Sales Brain** — heuristic + real NVIDIA Nemotron via Nebius
+9. **AI Support Bot** — answers buyer questions on every storefront
+10. **AI Payment Reminders** — polite nudges for overdue invoices
+11. **Pricing Coach** — AI suggests optimal pricing
+12. **Analytics Dashboard** — views, revenue, conversion, top products
+13. **AI Dispute Helper** — drafts dispute responses via real AI
+14. **Discount Coupons** — create/apply codes, consumed only after successful capture
+15. **Self-Healing PayPal Client** — exponential backoff retries + circuit breaker
+16. **Abandoned Cart Recovery** — message-only nudges (max 1/cart), optional coupon sweetener
+17. **Hindi ↔ English Translation** — real-time in agent chat, incl. Roman Hindi detection
+18. **Smart Upsell** — max 1 per conversation, respects seller bounds
+19. **Photo → Listing** — upload a product photo, AI generates the listing
+20. **Return/Refund Agent + Price Watch** — seller-approved returns, competitor price alerts via Tavily
+
+**Tests:** 144/144 passing (E2E + brain + recovery + translation + vision + returns + price-watch)
