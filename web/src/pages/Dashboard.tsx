@@ -261,7 +261,7 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
         </div>
       ) : (
         <>
-          <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
+          <div className="flex flex-wrap gap-2 mb-6 pb-1">
             {(["orders", "invoices", "plans", "agent", "analytics", "disputes", "coupons", "recovery", "returns", "pricewatch"] as Tab[]).map((t) => (
               <button
                 key={t}
