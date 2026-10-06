@@ -215,6 +215,16 @@ export default function AgentPage({
                 >
                   {m.role === "agent" && <span className="text-mint">🤖 </span>}
                   {m.text}
+                  {m.translatedText && (
+                    <div className="mt-1.5 pt-1.5 border-t border-white/10">
+                      <p className="text-xs text-white/70">
+                        <span title={m.translationAI ? "Translated by AI" : "Translation unavailable — showing original"}>
+                          🌐 {m.translationAI ? "" : "(original — translation unavailable) "}
+                        </span>
+                        {m.translatedText}
+                      </p>
+                    </div>
+                  )}
                 </div>
               ))}
               {busy && <p className="text-white/40 text-sm">agent thinking…</p>}

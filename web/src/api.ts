@@ -87,6 +87,9 @@ export interface AgentMessage {
   role: "buyer" | "agent" | "system";
   text: string;
   at: string;
+  lang?: "en" | "hi";
+  translatedText?: string;
+  translationAI?: boolean;
 }
 
 export interface AgentSession {
@@ -167,6 +170,25 @@ export const api = {
     }),
   listCoupons: (pageId: string) =>
     req<{ coupons: Coupon[] }>(`/api/pages/${encodeURIComponent(pageId)}/coupons`),
+  listAbandoned: (pageId: string) =>
+    req<{
+      carts: AbandonedCart[];
+      stats: { abandoned: number; nudged: number; recovered: number; recoveryRate: number };
+    }>(`/api/pages/${encodeURIComponent(pageId)}/abandoned`),
+  nudgeCart: (pageId: string, orderId: string) =>
+    req<{
+      nudge: { message: string; aiRephrased: boolean; couponCode?: string; sent: boolean; note: string };
+    }>(`/api/pages/${encodeURIComponent(pageId)}/abandoned/${encodeURIComponent(orderId)}/nudge`, {
+      method: "POST",
+    }),
+  setRecoverySettings: (pageId: string, enabled: boolean, discountPercent: number) =>
+    req<{ recoverySettings: { enabled: boolean; discountPercent: number } }>(
+      `/api/pages/${encodeURIComponent(pageId)}/recovery-settings`,
+      {
+        method: "POST",
+        body: JSON.stringify({ enabled, discountPercent }),
+      }
+    ),
   captureOrder: (id: string) =>
     req<{ order: Order }>(`/api/orders/${encodeURIComponent(id)}/capture`, {
       method: "POST",
@@ -265,6 +287,22 @@ export interface Coupon {
   usedCount: number;
   createdAt: string;
 }
+export interface AbandonedCart {
+  id: string;
+  orderId: string;
+  pageId: string;
+  productId: string;
+  productName: string;
+  amount: number;
+  currency: string;
+  buyerEmail: string;
+  createdAt: string;
+  abandonedAt: string;
+  nudged: boolean;
+  nudgedAt?: string;
+  nudgeText?: string;
+  recovered: boolean;
+}
 export interface DisputeDraft {
   subject: string;
   message: string;
@@ -293,4 +331,6 @@ export interface Stats {
   activeSessions: number;
   pages: PageStats[];
   topProducts: Array<{ name: string; revenue: number; orders: number }>;
+  upsellsSuggested: number;
+  upsellsAccepted: number;
 }

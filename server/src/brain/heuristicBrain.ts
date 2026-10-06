@@ -18,6 +18,7 @@ const QUESTION_RE = /\?|^(what|how|when|where|why|is|are|do|does|can|could|will|
 const COMPLAINT_RE = /(scam|fraud|cheat|sucks|terrible|awful|angry|dispute|report you|liar|fake|ripoff|rip off)/i;
 const SMALLTALK_RE = /^(hi|hey|hello|yo|sup|good (morning|afternoon|evening)|thanks|thank you|bye)\b/i;
 const CHARGE_TRICK_RE = /(bill me|charge me|take my money|just do it|do it now|send.*payment link now)/i;
+const UPSELL_RE = /(anything else|what else|other products?|bundle|package deal|combo|also (have|got|sell)|do you (have|sell|offer).*(else|other))/i;
 
 export function detectIntent(msg: string): BuyerIntent {
   const t = msg.trim();
@@ -26,6 +27,7 @@ export function detectIntent(msg: string): BuyerIntent {
   if (CHARGE_TRICK_RE.test(t)) return "price-negotiation"; // treated as negotiation; guardrails handle the trick
   if (YES_RE.test(t)) return "ready-to-buy";
   if (PRICE_RE.test(t)) return "price-negotiation";
+  if (UPSELL_RE.test(t)) return "upsell-opportunity";
   if (QUESTION_RE.test(t)) return "question";
   if (SMALLTALK_RE.test(t)) return "smalltalk";
   return "unknown";
@@ -37,6 +39,7 @@ const STRATEGIES: Record<BuyerIntent, string> = {
   question: "answer from product facts only; if unknown, say so honestly and offer to ask the seller",
   complaint: "stay calm and professional; acknowledge, do not argue; offer seller follow-up",
   smalltalk: "be friendly and brief; steer back to the product and price",
+  "upsell-opportunity": "buyer is open to more — suggest ONE complementary product from the same page at or above its floor price; accept 'no' gracefully, never pushy",
   unknown: "ask a clarifying question about budget or the product",
 };
 

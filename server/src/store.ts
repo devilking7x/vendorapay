@@ -31,6 +31,12 @@ export interface Page {
   engine: string;
   createdAt: string;
   products: Product[];
+  /** abandoned-cart recovery sweetener; default off (reminder only) */
+  recoverySettings?: {
+    enabled: boolean;
+    /** 1-30; only used when enabled */
+    discountPercent?: number;
+  };
 }
 
 export type OrderStatus =
@@ -101,6 +107,12 @@ export interface AgentMessage {
   role: "buyer" | "agent" | "system";
   text: string;
   at: string;
+  /** detected language of the original text ("en" | "hi"), heuristic */
+  lang?: "en" | "hi";
+  /** translation of text (shown alongside original in UI) */
+  translatedText?: string;
+  /** true ONLY when a real AI call produced translatedText */
+  translationAI?: boolean;
 }
 
 export interface AgentStep {
@@ -132,6 +144,10 @@ export interface AgentSession {
   pendingCharge: { amount: number; currency: string } | null;
   orderId?: string;
   createdAt: string;
+  /** smart-upsell state: at most one suggestion per conversation */
+  upsellSuggested?: boolean;
+  upsellProductId?: string;
+  upsellDeclined?: boolean;
 }
 
 const DATA_FILE =
@@ -144,6 +160,29 @@ const invoices = new Map<string, Invoice>();
 const plans = new Map<string, SubscriptionPlan>();
 const sessions = new Map<string, AgentSession>();
 const views = new Map<string, number>();
+
+// --- Abandoned carts (recovery) ---
+export interface AbandonedCart {
+  id: string;
+  orderId: string;
+  pageId: string;
+  productId: string;
+  productName: string;
+  amount: number;
+  currency: string;
+  buyerEmail: string;
+  createdAt: string;
+  abandonedAt: string;
+  nudged: boolean;
+  nudgedAt?: string;
+  nudgeText?: string;
+  recovered: boolean;
+}
+const abandonedCarts = new Map<string, AbandonedCart>(); // key: orderId
+
+// --- Upsell analytics counters ---
+let upsellsSuggested = 0;
+let upsellsAccepted = 0;
 
 function persist() {
   try {
@@ -158,6 +197,9 @@ function persist() {
           sessions: [...sessions.values()],
           views: [...views.entries()],
           coupons: [...coupons.values()],
+          abandonedCarts: [...abandonedCarts.values()],
+          upsellsSuggested,
+          upsellsAccepted,
         },
         null,
         2
@@ -179,6 +221,9 @@ function load() {
       sessions?: AgentSession[];
       views?: Array<[string, number]>;
       coupons?: Coupon[];
+      abandonedCarts?: AbandonedCart[];
+      upsellsSuggested?: number;
+      upsellsAccepted?: number;
     };
     for (const p of d.pages ?? []) pages.set(p.id, p);
     for (const o of d.orders ?? []) orders.set(o.id, o);
@@ -187,6 +232,9 @@ function load() {
     for (const s of d.sessions ?? []) sessions.set(s.id, s);
     for (const [k, v] of d.views ?? []) views.set(k, v);
     for (const c of d.coupons ?? []) coupons.set(couponKey(c.pageId, c.code), c);
+    for (const c of d.abandonedCarts ?? []) abandonedCarts.set(c.orderId, c);
+    if (typeof d.upsellsSuggested === "number") upsellsSuggested = d.upsellsSuggested;
+    if (typeof d.upsellsAccepted === "number") upsellsAccepted = d.upsellsAccepted;
   } catch {
     /* fresh start */
   }
@@ -281,6 +329,47 @@ export function listSessions(pageId?: string): AgentSession[] {
   return pageId ? all.filter((s) => s.pageId === pageId) : all;
 }
 
+// --- Abandoned carts ---
+export function saveAbandonedCart(c: AbandonedCart): void {
+  abandonedCarts.set(c.orderId, c);
+  persist();
+}
+export function listAbandonedCarts(pageId?: string): AbandonedCart[] {
+  const all = [...abandonedCarts.values()];
+  return pageId ? all.filter((c) => c.pageId === pageId) : all;
+}
+export function setAbandonedNudged(orderId: string, nudged: boolean, nudgeText?: string): AbandonedCart | null {
+  const c = abandonedCarts.get(orderId);
+  if (!c) return null;
+  c.nudged = nudged;
+  if (nudged) c.nudgedAt = new Date().toISOString();
+  if (nudgeText !== undefined) c.nudgeText = nudgeText;
+  persist();
+  return c;
+}
+export function setAbandonedRecovered(orderId: string, recovered: boolean): AbandonedCart | null {
+  const c = abandonedCarts.get(orderId);
+  if (!c) return null;
+  c.recovered = recovered;
+  persist();
+  return c;
+}
+
+// --- Upsell analytics ---
+export function countUpsellSuggested(): number {
+  upsellsSuggested += 1;
+  persist();
+  return upsellsSuggested;
+}
+export function countUpsellAccepted(): number {
+  upsellsAccepted += 1;
+  persist();
+  return upsellsAccepted;
+}
+export function getUpsellStats(): { upsellsSuggested: number; upsellsAccepted: number } {
+  return { upsellsSuggested, upsellsAccepted };
+}
+
 // --- One-click demo storefront (judge-friendly seed) ---
 // --- Page views (analytics) ---
 export function recordView(pageId: string): void {
@@ -317,6 +406,8 @@ export interface GlobalStats {
   activeSessions: number;
   pages: PageStats[];
   topProducts: Array<{ name: string; revenue: number; orders: number }>;
+  upsellsSuggested: number;
+  upsellsAccepted: number;
 }
 // --- Coupons (discount codes) ---
 export interface Coupon {
@@ -420,6 +511,8 @@ export function getStats(): GlobalStats {
     ).length,
     pages: pageStats.sort((a, b) => b.revenue - a.revenue),
     topProducts,
+    upsellsSuggested,
+    upsellsAccepted,
   };
 }
 

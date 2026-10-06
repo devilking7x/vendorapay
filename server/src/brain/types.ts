@@ -9,6 +9,7 @@ export type BuyerIntent =
   | "ready-to-buy"
   | "complaint"
   | "smalltalk"
+  | "upsell-opportunity"
   | "unknown";
 
 /** Facts the brain may use. Amounts are decided OUTSIDE the brain. */

@@ -55,6 +55,12 @@ import {
   type Page,
   type Product,
 } from "./store.js";
+import {
+  getAbandonedCarts,
+  markRecoveredByOrderId,
+  nudgeCart,
+  recoveryStats,
+} from "./recovery.js";
 
 const app = express();
 app.use(cors());
@@ -254,6 +260,50 @@ app.get("/api/pages/:id/coupons", (req, res) => {
   res.json({ coupons: listCoupons(page.id) });
 });
 
+// ---------- Abandoned cart recovery ----------
+app.get("/api/pages/:id/abandoned", (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  res.json({ carts: getAbandonedCarts(page.id), stats: recoveryStats(page.id) });
+});
+
+// Seller triggers the one-time nudge. Message-only — NEVER a charge.
+app.post("/api/pages/:id/abandoned/:orderId/nudge", async (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  const r = await nudgeCart(req.params.orderId);
+  if (!r) {
+    res.status(400).json({ error: "cart not found, already nudged, or no longer abandoned" });
+    return;
+  }
+  res.json({ nudge: r });
+});
+
+// Seller recovery settings: optional time-limited sweetener (default off).
+app.post("/api/pages/:id/recovery-settings", (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  const { enabled, discountPercent } = req.body ?? {};
+  page.recoverySettings = {
+    enabled: Boolean(enabled),
+    discountPercent:
+      typeof discountPercent === "number"
+        ? Math.min(30, Math.max(0, Math.round(discountPercent)))
+        : 0,
+  };
+  savePage(page);
+  res.json({ recoverySettings: page.recoverySettings });
+});
+
 app.post("/api/orders/:id/capture", async (req, res) => {
   const o = getOrder(req.params.id);
   if (!o) {
@@ -270,6 +320,8 @@ app.post("/api/orders/:id/capture", async (req, res) => {
         console.warn(`coupon ${o.couponCode} could not be consumed for order ${o.id}: ${cr.error}`);
       }
     }
+    // If this order was tracked as abandoned, mark it recovered (recovery rate)
+    markRecoveredByOrderId(o.id);
     res.json({ order: updated, paypal: paypalMode() });
   } catch (e) {
     setOrderStatus(o.id, "FAILED");

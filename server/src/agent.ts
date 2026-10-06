@@ -19,9 +19,13 @@ import {
   type SalesBrain,
   type SalesContext,
 } from "./brain/index.js";
+import { detectLanguage, translate } from "./translate.js";
 import {
+  countUpsellAccepted,
+  countUpsellSuggested,
   getPage,
   getSession,
+  listSessions,
   rid,
   saveOrder,
   saveSession,
@@ -48,6 +52,8 @@ function parsePrice(text: string): number | null {
 }
 
 const YES = /^(yes|yeah|yep|ok|okay|sure|deal|done|accept|agreed|sounds good)\b/i;
+const UPSELL_NO = /^(no|nope|nah|not interested|pass|skip)\b/i;
+const UPSELL_PITCH_MARKER = "Want me to add it to your deal?";
 
 export function startSession(args: {
   pageId: string;
@@ -103,6 +109,27 @@ export function startSession(args: {
   // track last counter offer on the session object (not persisted in type? it is via any)
   (s as unknown as { lastAgentOffer?: number }).lastAgentOffer = undefined;
   saveSession(s);
+
+  // Upsell acceptance tracking: did this buyer start a session for a product
+  // that was suggested as an upsell in an earlier session? (honest signal)
+  for (const prev of listSessions(page.id)) {
+    if (
+      prev.id !== s.id &&
+      prev.buyerName === s.buyerName &&
+      prev.upsellSuggested &&
+      prev.upsellProductId === args.productId &&
+      !prev.upsellDeclined
+    ) {
+      countUpsellAccepted();
+      s.steps.push({
+        step: s.steps.length + 1,
+        reasoning: `Buyer started a session for "${product.name}" after it was suggested as an upsell — counted as an accepted upsell.`,
+        action: "upsell accepted (new session for suggested product)",
+      });
+      saveSession(s);
+      break;
+    }
+  }
   return s;
 }
 
@@ -119,6 +146,47 @@ function pushStep(s: AgentSession, reasoning: string, action: string): void {
 
 function say(s: AgentSession, role: "buyer" | "agent" | "system", text: string): void {
   s.messages.push({ role, text, at: new Date().toISOString() });
+}
+
+/**
+ * Smart upsell: suggest ONE complementary product from the same page.
+ * Guardrails: max 1 per conversation, same page only, offered price never
+ * below the product's floor (seller bound), never on complaints, and a
+ * "no" is accepted gracefully with no repeat. Returns the pitch text or null.
+ */
+function maybeUpsell(s: AgentSession, analysis: BrainAnalysis): string | null {
+  if (s.upsellSuggested || s.upsellDeclined) return null; // max 1 per conversation
+  if (s.state !== "active") return null;
+  // Only on genuine buying signals (questions / explicit interest in more) —
+  // never on complaints, price haggling, or smalltalk.
+  if (!["question", "upsell-opportunity"].includes(analysis.intent)) {
+    return null;
+  }
+  const page = getPage(s.pageId);
+  if (!page) return null;
+  const others = page.products.filter((p) => p.id !== s.productId);
+  if (others.length === 0) return null;
+  const upsell = others[0];
+  // Combo sweetener: 10% off, but NEVER below the seller's floor for that product.
+  const discounted = Math.max(upsell.minPrice, Math.round(upsell.price * 0.9 * 100) / 100);
+  const pct = Math.round((1 - discounted / upsell.price) * 100);
+  s.upsellSuggested = true;
+  s.upsellProductId = upsell.id;
+  countUpsellSuggested();
+  pushStep(
+    s,
+    `Upsell guardrails passed: "${upsell.name}" is from the SAME page, offered at ${discounted} ${upsell.currency} ` +
+      `(floor ${upsell.minPrice} — never below). One suggestion max per conversation.`,
+    `suggested bundle: "${upsell.name}" at ${discounted} ${upsell.currency}`
+  );
+  const deal =
+    pct > 0
+      ? ` — I can do ${discounted} ${upsell.currency} for you (${pct}% off)`
+      : ` at ${upsell.price} ${upsell.currency}`;
+  return (
+    `\n\nBy the way — since you're looking at "${s.productName}", you might also like ` +
+    `"${upsell.name}"${deal}. ${UPSELL_PITCH_MARKER} No pressure at all!`
+  );
 }
 
 /**
@@ -146,6 +214,43 @@ export async function agentStep(
 
   const msg = buyerMessage.trim().slice(0, 500);
   say(s, "buyer", msg);
+
+  // --- Translation: detect buyer language; translate Hindi -> English for the seller ---
+  const buyerMsg = s.messages[s.messages.length - 1];
+  const { lang } = detectLanguage(msg);
+  buyerMsg.lang = lang;
+  if (lang === "hi") {
+    try {
+      const t = await translate(msg, "hi", "en");
+      buyerMsg.translatedText = t.text;
+      buyerMsg.translationAI = t.translated;
+      pushStep(
+        s,
+        `Buyer wrote in Hindi [${t.engine}]. ${t.translated ? "Translated to English for the seller." : "No AI key — showing original text."}`,
+        t.translated ? "translated buyer message (hi->en)" : "translation skipped (no key)"
+      );
+    } catch {
+      buyerMsg.translationAI = false;
+    }
+  }
+
+  // --- Upsell "no": accept gracefully, never suggest again ---
+  const lastAgentMsg = [...s.messages].reverse().find((m) => m.role === "agent");
+  const justOfferedUpsell =
+    s.upsellSuggested && !s.upsellDeclined && lastAgentMsg?.text.includes(UPSELL_PITCH_MARKER);
+  if (justOfferedUpsell && UPSELL_NO.test(msg)) {
+    s.upsellDeclined = true;
+    pushStep(
+      s,
+      `Buyer declined the upsell ("${msg}") — accepted gracefully, will not suggest again.`,
+      "upsell declined gracefully"
+    );
+    const reply = `Totally fine — no pressure! Let's focus on "${s.productName}".`;
+    say(s, "agent", reply);
+    saveSession(s);
+    return { session: s, reply };
+  }
+
   const offered = parsePrice(msg);
   const { minPrice, maxPrice, currency } = s;
 
@@ -282,7 +387,34 @@ export async function agentStep(
     );
   }
 
+  // --- Smart upsell: one complementary product, same page, floor-respecting ---
+  const upsellPitch = maybeUpsell(s, analysis);
+  if (upsellPitch) reply += upsellPitch;
+
+  // --- Reply translation: buyer wrote Hindi -> also show agent reply in Hindi ---
+  const agentMsgLang = buyerMsg.lang ?? "en";
+  let replyTranslatedText: string | undefined;
+  let replyTranslationAI = false;
+  if (agentMsgLang === "hi") {
+    try {
+      const t = await translate(reply, "en", "hi");
+      if (t.translated) {
+        replyTranslatedText = t.text;
+        replyTranslationAI = true;
+        pushStep(s, `Agent reply translated to Hindi [${t.engine}].`, "translated agent reply (en->hi)");
+      }
+    } catch {
+      /* keep English only */
+    }
+  }
+
   say(s, "agent", reply);
+  const agentMsg = s.messages[s.messages.length - 1];
+  if (replyTranslatedText) {
+    agentMsg.translatedText = replyTranslatedText;
+    agentMsg.translationAI = replyTranslationAI;
+    agentMsg.lang = "en";
+  }
   saveSession(s);
   return { session: s, reply };
 }

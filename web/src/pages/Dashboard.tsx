@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   api,
+  type AbandonedCart,
   type AgentSession,
   type Coupon,
   type DisputeDraft,
@@ -11,7 +12,7 @@ import {
   type SubscriptionPlan,
 } from "../api";
 
-type Tab = "orders" | "invoices" | "plans" | "agent" | "analytics" | "disputes" | "coupons";
+type Tab = "orders" | "invoices" | "plans" | "agent" | "analytics" | "disputes" | "coupons" | "recovery";
 
 function statusChip(s: string) {
   return <span className={`chip status-${s}`}>{s}</span>;
@@ -258,7 +259,7 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
       ) : (
         <>
           <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
-            {(["orders", "invoices", "plans", "agent", "analytics", "disputes", "coupons"] as Tab[]).map((t) => (
+            {(["orders", "invoices", "plans", "agent", "analytics", "disputes", "coupons", "recovery"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -271,6 +272,7 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
                 {t === "analytics" && "📊 Analytics"}
                 {t === "disputes" && "⚖️ Disputes"}
                 {t === "coupons" && "🎟️ Coupons"}
+                {t === "recovery" && "🛒 Recovery"}
               </button>
             ))}
           </div>
@@ -533,6 +535,9 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
           {tab === "coupons" && (
             <CouponsView pageId={pageId} />
           )}
+          {tab === "recovery" && (
+            <RecoveryView pageId={pageId} />
+          )}
         </>
       )}
     </div>
@@ -557,6 +562,8 @@ function AnalyticsView() {
     { label: "📈 Conversion", value: `${stats.conversion}%` },
     { label: "🧾 Invoices paid", value: `${stats.invoicesPaid}/${stats.invoicesSent}` },
     { label: "🤖 Active agent chats", value: String(stats.activeSessions) },
+    { label: "📈 Upsells suggested", value: String(stats.upsellsSuggested ?? 0) },
+    { label: "✅ Upsells accepted", value: String(stats.upsellsAccepted ?? 0) },
   ];
   return (
     <div className="space-y-4">
@@ -807,6 +814,126 @@ function CouponsView({ pageId }: { pageId: string }) {
                 <p className="text-white/60 text-xs">
                   {c.percentOff}% off · {c.usedCount}/{c.maxUses} used
                 </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecoveryView({ pageId }: { pageId: string }) {
+  const [carts, setCarts] = useState<AbandonedCart[]>([]);
+  const [stats, setStats] = useState<{ abandoned: number; nudged: number; recovered: number; recoveryRate: number } | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
+  const [sweetenerOn, setSweetenerOn] = useState(false);
+  const [sweetenerPct, setSweetenerPct] = useState("10");
+  const [nudgeResult, setNudgeResult] = useState("");
+
+  const load = async () => {
+    if (!pageId) return;
+    try {
+      const r = await api.listAbandoned(pageId);
+      setCarts(r.carts);
+      setStats(r.stats);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  useEffect(() => {
+    load();
+  }, [pageId]);
+
+  const nudge = async (orderId: string) => {
+    setErr("");
+    setNudgeResult("");
+    setBusy(orderId);
+    try {
+      const r = await api.nudgeCart(pageId, orderId);
+      setNudgeResult(`📨 Nudge ready (demo — logged, not sent): "${r.nudge.message.slice(0, 120)}..."`);
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const saveSettings = async () => {
+    setErr("");
+    try {
+      await api.setRecoverySettings(pageId, sweetenerOn, Number(sweetenerPct));
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card">
+        <p className="font-display font-bold mb-1">🛒 Abandoned Cart Recovery</p>
+        <p className="text-sm text-white/60 mb-3">
+          Orders created but not paid within 30 minutes. Send a one-time friendly nudge —
+          <strong> message only, never a charge</strong>.
+        </p>
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+            <div className="card !p-3"><p className="text-xs text-white/50">Abandoned</p><p className="font-bold text-gold text-lg">{stats.abandoned}</p></div>
+            <div className="card !p-3"><p className="text-xs text-white/50">Nudged</p><p className="font-bold text-lg">{stats.nudged}</p></div>
+            <div className="card !p-3"><p className="text-xs text-white/50">Recovered</p><p className="font-bold text-mint text-lg">{stats.recovered}</p></div>
+            <div className="card !p-3"><p className="text-xs text-white/50">Recovery rate</p><p className="font-bold text-lg">{stats.recoveryRate}%</p></div>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={sweetenerOn} onChange={(e) => setSweetenerOn(e.target.checked)} />
+            Enable comeback discount
+          </label>
+          {sweetenerOn && (
+            <input
+              className="input w-20"
+              type="number"
+              min={1}
+              max={30}
+              value={sweetenerPct}
+              onChange={(e) => setSweetenerPct(e.target.value)}
+            />
+          )}
+          {sweetenerOn && <span className="text-sm text-white/60">% off (single-use coupon, auto-created)</span>}
+          <button onClick={saveSettings} className="btn-ghost text-sm">Save settings</button>
+        </div>
+      </div>
+
+      {err && <div className="card"><p className="text-red-400 text-sm">{err}</p></div>}
+      {nudgeResult && <div className="card"><p className="text-sm text-mint">{nudgeResult}</p></div>}
+
+      <div className="card">
+        <p className="font-display font-bold mb-3">Abandoned carts</p>
+        {carts.length === 0 ? (
+          <p className="text-sm text-white/50">No abandoned carts — every checkout completed! 🎉</p>
+        ) : (
+          <div className="space-y-2">
+            {carts.map((c) => (
+              <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-white/5">
+                <div>
+                  <p className="text-sm font-medium">{c.productName} — {c.amount} {c.currency}</p>
+                  <p className="text-xs text-white/50">
+                    {c.buyerEmail} · abandoned {new Date(c.abandonedAt).toLocaleString()}
+                    {c.recovered && <span className="text-mint ml-2">✅ recovered</span>}
+                    {c.nudged && !c.recovered && <span className="text-gold ml-2">📨 nudged</span>}
+                  </p>
+                </div>
+                {!c.nudged && !c.recovered && (
+                  <button
+                    onClick={() => nudge(c.orderId)}
+                    disabled={busy === c.orderId}
+                    className="btn-primary text-sm whitespace-nowrap"
+                  >
+                    {busy === c.orderId ? "…" : "📨 Send nudge"}
+                  </button>
+                )}
               </div>
             ))}
           </div>
