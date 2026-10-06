@@ -90,6 +90,122 @@ function rid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
 }
 
+// ---------- resilience: retry with backoff + circuit breaker ----------
+
+export class PayPalError extends Error {
+  readonly status?: number;
+  readonly transient: boolean;
+  constructor(message: string, opts?: { status?: number; transient?: boolean }) {
+    super(message);
+    this.name = "PayPalError";
+    this.status = opts?.status;
+    this.transient = opts?.transient ?? false;
+  }
+}
+
+function retryDelaysMs(): number[] {
+  const raw = process.env.PAYPAL_RETRY_DELAYS_MS;
+  if (raw) {
+    const ds = raw
+      .split(",")
+      .map((x) => Number(x.trim()))
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    if (ds.length > 0) return ds.slice(0, 5);
+  }
+  return [1000, 2000, 4000]; // exponential backoff
+}
+
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Transient = worth retrying: HTTP 429 / 5xx, or a network-level failure. */
+export function isTransientError(e: unknown): boolean {
+  const msg = errMessage(e);
+  if (/-> 429(?:\D|$)/.test(msg) || /-> 5\d\d(?:\D|$)/.test(msg)) return true;
+  if (e instanceof TypeError) return true; // fetch network failure
+  if (e instanceof Error && e.name === "AbortError") return true; // timeout
+  return false;
+}
+
+// Circuit breaker state: after repeated consecutive failures, fail fast
+// for a cooldown instead of hammering PayPal.
+let consecutiveFailures = 0;
+let circuitOpenUntil = 0;
+const CIRCUIT_THRESHOLD = 5;
+const CIRCUIT_COOLDOWN_MS = 30_000;
+
+/** Test/ops hook: reset circuit-breaker state. */
+export function resetPayPalCircuit(): void {
+  consecutiveFailures = 0;
+  circuitOpenUntil = 0;
+}
+
+function checkCircuit(label: string): void {
+  if (Date.now() < circuitOpenUntil) {
+    throw new PayPalError(
+      `PayPal circuit breaker OPEN after ${consecutiveFailures} consecutive failures — ` +
+        `refusing ${label} for ${Math.ceil((circuitOpenUntil - Date.now()) / 1000)}s. ` +
+        `No charge attempted.`,
+      { transient: true }
+    );
+  }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Run fn with exponential-backoff retry on transient failures.
+ * Non-transient errors fail immediately. After retries are exhausted the
+ * error is honest: no fake success, nothing charged. Exported for tests.
+ */
+export async function withPayPalRetry<T>(
+  label: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  checkCircuit(label);
+  const delays = retryDelaysMs();
+  let lastErr: unknown = null;
+  let attempts = 0;
+  for (let i = 0; i <= delays.length; i++) {
+    attempts = i + 1;
+    try {
+      const out = await fn();
+      consecutiveFailures = 0;
+      return out;
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientError(e)) break;
+      if (i === delays.length) break;
+      const wait = delays[i];
+      console.warn(
+        `[paypal] ${label}: attempt ${attempts} failed (${errMessage(e).slice(0, 120)}); retrying in ${wait}ms`
+      );
+      await sleep(wait);
+    }
+  }
+  consecutiveFailures += 1;
+  if (consecutiveFailures >= CIRCUIT_THRESHOLD) {
+    circuitOpenUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+    console.warn(`[paypal] circuit breaker OPEN after ${consecutiveFailures} consecutive failures`);
+  }
+  const tried = attempts > 1 ? ` after ${attempts} attempts` : "";
+  throw new PayPalError(
+    `PayPal ${label} failed${tried}: ${errMessage(lastErr).slice(0, 200)}. ` +
+      `No order was created — nothing was charged.`,
+    { transient: isTransientError(lastErr) }
+  );
+}
+
+/** Live REST call wrapped in retry + circuit breaker. */
+function liveRest(
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<Record<string, unknown>> {
+  return withPayPalRetry(`${method} ${path}`, () => rest(method, path, body));
+}
+
 // ---------- public API (mock or live behind the env flag) ----------
 
 /** Create an order (intent CAPTURE). */
@@ -109,7 +225,7 @@ export async function createOrder(
     };
   }
   if (!CLIENT_ID || !SECRET) throw new Error("PAYPAL_CLIENT_ID/SECRET not configured");
-  const data = await rest("POST", "/v2/checkout/orders", {
+  const data = await liveRest("POST", "/v2/checkout/orders", {
     intent: "CAPTURE",
     purchase_units: [
       {
@@ -134,7 +250,7 @@ export async function captureOrder(
 ): Promise<{ id: string; status: string }> {
   if (MOCK) return { id: orderId, status: "COMPLETED" };
   if (!CLIENT_ID || !SECRET) throw new Error("PAYPAL_CLIENT_ID/SECRET not configured");
-  const data = await rest("POST", `/v2/checkout/orders/${orderId}/capture`, {});
+  const data = await liveRest("POST", `/v2/checkout/orders/${orderId}/capture`, {});
   return { id: String(data.id ?? orderId), status: String(data.status ?? "COMPLETED") };
 }
 
@@ -151,7 +267,7 @@ export async function createInvoiceDraft(args: {
     return { id: rid("MOCK-INV"), status: "DRAFT", amount: total, currency: args.currency };
   }
   if (!CLIENT_ID || !SECRET) throw new Error("PAYPAL_CLIENT_ID/SECRET not configured");
-  const data = await rest("POST", "/v2/invoicing/invoices", {
+  const data = await liveRest("POST", "/v2/invoicing/invoices", {
     detail: {
       currency_code: args.currency,
       note: args.notes.slice(0, 400),
@@ -173,7 +289,7 @@ export async function createInvoiceDraft(args: {
 export async function sendInvoice(invoiceId: string): Promise<{ id: string; status: string }> {
   if (MOCK) return { id: invoiceId, status: "SENT" };
   if (!CLIENT_ID || !SECRET) throw new Error("PAYPAL_CLIENT_ID/SECRET not configured");
-  await rest("POST", `/v2/invoicing/invoices/${invoiceId}/send`, {
+  await liveRest("POST", `/v2/invoicing/invoices/${invoiceId}/send`, {
     send_to_recipient: true,
   });
   return { id: invoiceId, status: "SENT" };
@@ -188,11 +304,11 @@ export async function createSubscriptionPlan(args: {
 }): Promise<PayPalPlan> {
   if (MOCK) return { id: rid("MOCK-PLAN"), status: "ACTIVE" };
   if (!CLIENT_ID || !SECRET) throw new Error("PAYPAL_CLIENT_ID/SECRET not configured");
-  const product = await rest("POST", "/v1/catalogs/products", {
+  const product = await liveRest("POST", "/v1/catalogs/products", {
     name: args.name.slice(0, 120),
     type: "SERVICE",
   });
-  const plan = await rest("POST", "/v1/billing/plans", {
+  const plan = await liveRest("POST", "/v1/billing/plans", {
     product_id: String(product.id ?? ""),
     name: args.name.slice(0, 120),
     billing_cycles: [

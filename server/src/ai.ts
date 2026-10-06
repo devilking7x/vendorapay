@@ -25,6 +25,19 @@ export function aiMode(): AIEngine {
 }
 
 async function aiJSON<T>(prompt: string): Promise<T | null> {
+  const r = await aiChatJSON<T>(prompt);
+  return r?.data ?? null;
+}
+
+/**
+ * Generic JSON chat call. Returns null when no key is set or on any failure.
+ * Exported for the agentic-salesperson brain (NebiusBrain). The returned
+ * `engine` names the provider ONLY when a real API call succeeded.
+ */
+export async function aiChatJSON<T>(
+  prompt: string,
+  opts?: { maxTokens?: number; temperature?: number; timeoutMs?: number }
+): Promise<{ data: T; engine: AIEngine } | null> {
   if (!AI_KEY) return null;
   try {
     const res = await fetch(`${AI_URL}/chat/completions`, {
@@ -36,10 +49,10 @@ async function aiJSON<T>(prompt: string): Promise<T | null> {
       body: JSON.stringify({
         model: AI_MODEL,
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 900,
-        temperature: 0.7,
+        max_tokens: opts?.maxTokens ?? 900,
+        temperature: opts?.temperature ?? 0.7,
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(opts?.timeoutMs ?? 30000),
     });
     if (!res.ok) return null;
     const data = (await res.json()) as {
@@ -49,7 +62,7 @@ async function aiJSON<T>(prompt: string): Promise<T | null> {
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
     if (start < 0 || end <= start) return null;
-    return JSON.parse(raw.slice(start, end + 1)) as T;
+    return { data: JSON.parse(raw.slice(start, end + 1)) as T, engine: AI_PROVIDER };
   } catch {
     return null;
   }

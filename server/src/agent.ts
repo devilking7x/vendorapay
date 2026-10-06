@@ -4,8 +4,21 @@
 //  - NEVER creates a charge without explicit seller confirmation
 //  - every decision is logged as a reasoning step (transparency)
 // Price parsing is deterministic; the LLM is never trusted with numbers.
+//
+// Reasoning brain: the salesperson consults a SalesBrain (see ./brain/) for
+// intent analysis + reply phrasing, but ALL guardrails are enforced OUTSIDE
+// the brain — brain proposes, guardrails dispose. A validator vetoes any
+// brain draft that invents prices or claims a charge happened.
 
 import { createOrder } from "./paypal.js";
+import {
+  createSalesBrain,
+  validateDraft,
+  type BrainAnalysis,
+  type DecidedFacts,
+  type SalesBrain,
+  type SalesContext,
+} from "./brain/index.js";
 import {
   getPage,
   getSession,
@@ -16,6 +29,13 @@ import {
   type AgentStep,
   type Order,
 } from "./store.js";
+
+// Lazy singleton — created on first sale so env is settled.
+let _brain: SalesBrain | null = null;
+function brain(): SalesBrain {
+  if (!_brain) _brain = createSalesBrain();
+  return _brain;
+}
 
 function parsePrice(text: string): number | null {
   // matches $40, 40$, 40 dollars, USD 40, 40.50
@@ -102,13 +122,18 @@ function say(s: AgentSession, role: "buyer" | "agent" | "system", text: string):
 }
 
 /**
- * One buyer message -> agent response. Pure negotiation logic:
- * agreed price ALWAYS lands inside [minPrice, maxPrice].
+ * One buyer message -> agent response.
+ *
+ * 1. Brain analyzes the message (advisory strategy, logged with reasoning).
+ * 2. DETERMINISTIC guardrails decide the outcome: accept / counter / cap /
+ *    ask / clarify. Agreed price ALWAYS lands inside [minPrice, maxPrice].
+ * 3. Brain drafts the reply phrasing; the guardrail validator vetoes any
+ *    draft that invents a price or claims a charge happened.
  */
-export function agentStep(
+export async function agentStep(
   sessionId: string,
   buyerMessage: string
-): { session: AgentSession; reply: string } | null {
+): Promise<{ session: AgentSession; reply: string } | null> {
   const s = getSession(sessionId);
   if (!s || s.state === "declined" || s.state === "completed") return null;
   if (s.state === "awaiting_seller_confirm" || s.state === "confirmed") {
@@ -123,7 +148,41 @@ export function agentStep(
   say(s, "buyer", msg);
   const offered = parsePrice(msg);
   const { minPrice, maxPrice, currency } = s;
-  let reply: string;
+
+  // --- 1. Brain: advisory strategy analysis (never decides money) ---
+  const b = brain();
+  const page = getPage(s.pageId);
+  const ctx: SalesContext = {
+    productName: s.productName,
+    sellerName: page?.sellerName ?? "the seller",
+    buyerName: s.buyerName,
+    currency,
+    listPrice: maxPrice,
+    minPrice,
+    maxPrice,
+    lastAgentOffer: lastOffer(s),
+    history: s.messages.slice(-6).map((m) => `${m.role}: ${m.text}`),
+  };
+  let analysis: BrainAnalysis;
+  try {
+    analysis = await b.analyzeBuyerMessage(msg, ctx);
+  } catch (e) {
+    analysis = {
+      intent: "unknown",
+      suggestedStrategy: "proceed with deterministic guardrails",
+      reasoning: `brain error (${(e as Error).message}) — continuing without brain strategy`,
+      engine: "error-fallback (rule-based — not AI)",
+    };
+  }
+  pushStep(
+    s,
+    `Brain analysis [${analysis.engine}]: ${analysis.reasoning}`,
+    `intent=${analysis.intent}; advisory strategy: ${analysis.suggestedStrategy}`
+  );
+
+  // --- 2. Deterministic guardrails: outcome + base reply (facts) ---
+  let decided: DecidedFacts;
+  let baseReply: string;
 
   // Buyer accepted our last counter with a plain "yes"
   if (offered === null && YES.test(msg)) {
@@ -136,32 +195,23 @@ export function agentStep(
         `Buyer accepted my counter of ${lo} ${currency} with "${msg}". ${lo} is within [${minPrice}, ${maxPrice}].`,
         `locked pending charge at ${lo} ${currency} — waiting for SELLER confirmation (no charge created)`
       );
-      reply =
+      decided = { action: "accept", amount: lo, currency };
+      baseReply =
         `Deal! ${lo} ${currency} it is. I've sent it to the seller for final confirmation — ` +
         `you'll get the PayPal checkout link as soon as they approve.`;
-      say(s, "agent", reply);
-      saveSession(s);
-      return { session: s, reply };
+    } else {
+      pushStep(s, `Buyer said "${msg}" with no active offer on the table.`, "asked for explicit price confirmation");
+      decided = { action: "clarify", amount: maxPrice, currency };
+      baseReply = `Happy to lock it in! Just to be clear — are you agreeing to ${maxPrice} ${currency} (the listed price)? Say "yes" or name your price.`;
     }
-    reply = `Happy to lock it in! Just to be clear — are you agreeing to ${maxPrice} ${currency} (the listed price)? Say "yes" or name your price.`;
-    pushStep(s, `Buyer said "${msg}" with no active offer on the table.`, "asked for explicit price confirmation");
-    say(s, "agent", reply);
-    saveSession(s);
-    return { session: s, reply };
-  }
-
-  if (offered === null) {
-    reply =
+  } else if (offered === null) {
+    pushStep(s, `No price found in "${msg}".`, "asked buyer for their budget");
+    decided = { action: "ask-budget", currency };
+    baseReply =
       `I can work with you on the price — "${s.productName}" is listed at ${maxPrice} ${currency}. ` +
       `What's your budget?`;
-    pushStep(s, `No price found in "${msg}".`, "asked buyer for their budget");
-    say(s, "agent", reply);
-    saveSession(s);
-    return { session: s, reply };
-  }
-
-  // Guardrail: buyer tries to push ABOVE the ceiling -> cap at maxPrice, never exceed
-  if (offered > maxPrice) {
+  } else if (offered > maxPrice) {
+    // Guardrail: buyer tries to push ABOVE the ceiling -> cap at maxPrice, never exceed
     s.pendingCharge = { amount: maxPrice, currency };
     s.state = "awaiting_seller_confirm";
     pushStep(
@@ -170,16 +220,12 @@ export function agentStep(
         `Guardrail: I never agree above maxPrice, so I capped at the ceiling.`,
       `locked pending charge at ceiling ${maxPrice} ${currency} — waiting for SELLER confirmation`
     );
-    reply =
+    decided = { action: "cap-at-ceiling", amount: maxPrice, currency };
+    baseReply =
       `That's generous! The most I can accept is the listed ${maxPrice} ${currency} — ` +
       `deal at that? I've sent it to the seller for final confirmation.`;
-    say(s, "agent", reply);
-    saveSession(s);
-    return { session: s, reply };
-  }
-
-  // Inside bounds -> accept
-  if (offered >= minPrice) {
+  } else if (offered >= minPrice) {
+    // Inside bounds -> accept
     s.pendingCharge = { amount: offered, currency };
     s.state = "awaiting_seller_confirm";
     setLastOffer(s, undefined);
@@ -188,26 +234,54 @@ export function agentStep(
       `Buyer offered ${offered} ${currency}, inside bounds [${minPrice}, ${maxPrice}]. Acceptable.`,
       `locked pending charge at ${offered} ${currency} — waiting for SELLER confirmation (no charge created)`
     );
-    reply =
+    decided = { action: "accept", amount: offered, currency };
+    baseReply =
       `Done — ${offered} ${currency} works! I've sent it to the seller for final confirmation. ` +
       `You'll get the PayPal checkout link once they approve.`;
-    say(s, "agent", reply);
-    saveSession(s);
-    return { session: s, reply };
+  } else {
+    // Below floor -> counter, never accept
+    const counter = Math.max(minPrice, Math.round(((minPrice + offered) / 2) * 100) / 100);
+    setLastOffer(s, counter);
+    pushStep(
+      s,
+      `Buyer offered ${offered} ${currency} — BELOW the floor of ${minPrice}. ` +
+        `Guardrail: I cannot agree below minPrice. Countering at ${counter} (midpoint, still >= floor).`,
+      `countered at ${counter} ${currency}; no charge, no agreement below bounds`
+    );
+    decided = { action: "counter", amount: counter, currency };
+    baseReply =
+      `Hmm, ${offered} ${currency} is below what the seller can do. ` +
+      `How about ${counter} ${currency}? Say "yes" and I'll lock it in for seller approval.`;
   }
 
-  // Below floor -> counter, never accept
-  const counter = Math.max(minPrice, Math.round(((minPrice + offered) / 2) * 100) / 100);
-  setLastOffer(s, counter);
-  pushStep(
-    s,
-    `Buyer offered ${offered} ${currency} — BELOW the floor of ${minPrice}. ` +
-      `Guardrail: I cannot agree below minPrice. Countering at ${counter} (midpoint, still >= floor).`,
-    `countered at ${counter} ${currency}; no charge, no agreement below bounds`
-  );
-  reply =
-    `Hmm, ${offered} ${currency} is below what the seller can do. ` +
-    `How about ${counter} ${currency}? Say "yes" and I'll lock it in for seller approval.`;
+  // --- 3. Brain drafts phrasing; guardrail validator has the final say ---
+  let reply = baseReply;
+  try {
+    const draft = await b.draftReply(analysis, ctx, decided, baseReply);
+    pushStep(
+      s,
+      `Brain draft [${draft.engine}]: ${draft.reasoning}`,
+      "drafted reply phrasing (facts fixed by guardrails)"
+    );
+    const rejection = validateDraft(draft.text, decided);
+    if (rejection) {
+      pushStep(
+        s,
+        `Brain draft REJECTED by guardrail validator: ${rejection}.`,
+        "validator veto — deterministic reply kept"
+      );
+    } else {
+      reply = draft.text;
+      pushStep(s, "Brain draft passed validation.", "sending brain-drafted reply");
+    }
+  } catch (e) {
+    pushStep(
+      s,
+      `Brain draft error (${(e as Error).message}) — deterministic reply kept.`,
+      "draft skipped"
+    );
+  }
+
   say(s, "agent", reply);
   saveSession(s);
   return { session: s, reply };

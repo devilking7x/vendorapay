@@ -495,12 +495,12 @@ app.post("/api/webhooks/simulate", (req, res) => {
 });
 
 // ---------- Agentic salesperson ----------
-app.post("/api/agent/sell", (req, res) => {
+app.post("/api/agent/sell", async (req, res) => {
   const { sessionId, pageId, productId, buyerName, buyerMessage, minPrice, maxPrice } =
     req.body ?? {};
   // Continue an existing session
   if (sessionId) {
-    const r = agentStep(String(sessionId), String(buyerMessage ?? ""));
+    const r = await agentStep(String(sessionId), String(buyerMessage ?? ""));
     if (!r) {
       res.status(404).json({ error: "session not found or closed" });
       return;
@@ -524,7 +524,7 @@ app.post("/api/agent/sell", (req, res) => {
     res.status(404).json({ error: "page or product not found" });
     return;
   }
-  const r = agentStep(s.id, buyerMessage);
+  const r = await agentStep(s.id, buyerMessage);
   res.json({ session: r?.session ?? s, reply: r?.reply ?? "" });
 });
 
