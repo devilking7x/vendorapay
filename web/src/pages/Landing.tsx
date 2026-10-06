@@ -62,7 +62,7 @@ export default function Landing({ nav }: { nav: (h: string) => void }) {
         </div>
         {err && <p className="text-red-300 text-sm mt-3">{err}</p>}
         <p className="text-white/30 text-xs mt-4">
-          Demo runs on simulated PayPal (🧪 demo mode) — no real money moves until you add sandbox keys.
+          Runs on PayPal sandbox — no real money moves. Add your own sandbox keys for full control.
         </p>
       </section>
 

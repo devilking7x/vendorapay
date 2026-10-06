@@ -402,7 +402,7 @@ export async function supportAnswer(
       `. Buyer asks: "${question.slice(0, 200)}". Answer helpfully in 1-2 sentences from the product info only. ` +
       `If the info isn't there, say so honestly and suggest asking the seller. Return ONLY JSON: {"answer":"..."}.`
   );
-  if (ai?.answer) return { answer: ai.answer.slice(0, 400), engine: AI_PROVIDER };
+  if (ai?.answer?.trim()) return { answer: ai.answer.trim().slice(0, 400), engine: AI_PROVIDER };
   return {
     answer:
       "I don't have that detail on this page — try asking the seller directly, they usually reply fast!",

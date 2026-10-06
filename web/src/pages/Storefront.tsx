@@ -108,7 +108,7 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
         }}
       >
         <div className="max-w-3xl mx-auto">
-          <p className="text-sm text-white/50 mb-2">by {page.sellerName}</p>
+          <p className="text-sm text-white/50 mb-2">by{" "}{page.sellerName}</p>
           <h1 className="font-display font-extrabold text-3xl sm:text-5xl tracking-tight">
             {page.title}
           </h1>
@@ -134,7 +134,7 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
                 <p className="text-white/60 text-sm mt-1">{p.description}</p>
               </div>
               <p className="font-display font-extrabold text-2xl text-mint whitespace-nowrap">
-                {p.price} <span className="text-sm">{p.currency}</span>
+                {p.price}{" "}<span className="text-sm">{p.currency}</span>
               </p>
             </div>
 
