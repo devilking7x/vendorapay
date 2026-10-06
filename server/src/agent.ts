@@ -217,16 +217,16 @@ export async function agentStep(
 
   // --- Translation: detect buyer language; translate Hindi -> English for the seller ---
   const buyerMsg = s.messages[s.messages.length - 1];
-  const { lang } = detectLanguage(msg);
+  const { lang, method } = detectLanguage(msg);
   buyerMsg.lang = lang;
-  if (lang === "hi") {
+  if (lang === "hi" || lang === "hi-roman") {
     try {
-      const t = await translate(msg, "hi", "en");
+      const t = await translate(msg, lang, "en");
       buyerMsg.translatedText = t.text;
       buyerMsg.translationAI = t.translated;
       pushStep(
         s,
-        `Buyer wrote in Hindi [${t.engine}]. ${t.translated ? "Translated to English for the seller." : "No AI key — showing original text."}`,
+        `Buyer wrote in ${lang === "hi-roman" ? "Roman Hindi" : "Hindi"} [${method}; ${t.engine}]. ${t.translated ? "Translated to English for the seller." : "No AI key — showing original text."}`,
         t.translated ? "translated buyer message (hi->en)" : "translation skipped (no key)"
       );
     } catch {
@@ -395,7 +395,7 @@ export async function agentStep(
   const agentMsgLang = buyerMsg.lang ?? "en";
   let replyTranslatedText: string | undefined;
   let replyTranslationAI = false;
-  if (agentMsgLang === "hi") {
+  if (agentMsgLang === "hi" || agentMsgLang === "hi-roman") {
     try {
       const t = await translate(reply, "en", "hi");
       if (t.translated) {

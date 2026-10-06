@@ -8,11 +8,14 @@ import {
   type Invoice,
   type Order,
   type Page,
+  type PriceAlert,
+  type PriceWatch,
+  type ReturnRequest,
   type Stats,
   type SubscriptionPlan,
 } from "../api";
 
-type Tab = "orders" | "invoices" | "plans" | "agent" | "analytics" | "disputes" | "coupons" | "recovery";
+type Tab = "orders" | "invoices" | "plans" | "agent" | "analytics" | "disputes" | "coupons" | "recovery" | "returns" | "pricewatch";
 
 function statusChip(s: string) {
   return <span className={`chip status-${s}`}>{s}</span>;
@@ -259,7 +262,7 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
       ) : (
         <>
           <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
-            {(["orders", "invoices", "plans", "agent", "analytics", "disputes", "coupons", "recovery"] as Tab[]).map((t) => (
+            {(["orders", "invoices", "plans", "agent", "analytics", "disputes", "coupons", "recovery", "returns", "pricewatch"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -273,6 +276,8 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
                 {t === "disputes" && "⚖️ Disputes"}
                 {t === "coupons" && "🎟️ Coupons"}
                 {t === "recovery" && "🛒 Recovery"}
+                {t === "returns" && "↩️ Returns"}
+                {t === "pricewatch" && "🏷️ Price watch"}
               </button>
             ))}
           </div>
@@ -537,6 +542,12 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
           )}
           {tab === "recovery" && (
             <RecoveryView pageId={pageId} />
+          )}
+          {tab === "returns" && (
+            <ReturnsView pageId={pageId} />
+          )}
+          {tab === "pricewatch" && (
+            <PriceWatchView pageId={pageId} />
           )}
         </>
       )}
@@ -938,6 +949,267 @@ function RecoveryView({ pageId }: { pageId: string }) {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ReturnsView({ pageId }: { pageId: string }) {
+  const [returns, setReturns] = useState<ReturnRequest[]>([]);
+  const [windowDays, setWindowDays] = useState(7);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState<Record<string, string>>({});
+
+  const load = async () => {
+    if (!pageId) return;
+    try {
+      const r = await api.listReturns(pageId);
+      setReturns(r.returns);
+      setWindowDays(r.returnWindowDays);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  useEffect(() => {
+    load();
+  }, [pageId]);
+
+  const decide = async (id: string, approved: boolean) => {
+    setErr("");
+    setBusy(id);
+    try {
+      await api.decideReturn(id, approved, note[id] ?? "");
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const saveWindow = async () => {
+    setErr("");
+    try {
+      const r = await api.setReturnWindow(pageId, windowDays);
+      setWindowDays(r.returnWindowDays);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const pending = returns.filter((r) => r.status === "PENDING");
+  return (
+    <div>
+      {err && <p className="text-red-400 text-sm mb-3">{err}</p>}
+      <div className="card mb-4">
+        <p className="font-display font-bold mb-1">↩️ Return / Refund Agent</p>
+        <p className="text-sm text-white/60 mb-3">
+          Buyers request returns; the agent drafts a recommendation — <b>you</b> approve or decline.
+          Approved refunds go through the real PayPal Refunds API. Nothing refunds without your approval.
+        </p>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-white/70">Return window (days, 0 = no returns):</label>
+          <input
+            type="number"
+            min={0}
+            max={90}
+            value={windowDays}
+            onChange={(e) => setWindowDays(Number(e.target.value))}
+            className="input w-20"
+          />
+          <button onClick={saveWindow} className="btn-secondary text-sm">Save</button>
+        </div>
+      </div>
+      {pending.length === 0 && returns.length === 0 && (
+        <p className="text-white/50 text-sm">No return requests yet.</p>
+      )}
+      {pending.length > 0 && <p className="text-sm mb-2 text-amber-300">⏳ {pending.length} awaiting your decision</p>}
+      <div className="grid gap-3">
+        {returns.map((r) => (
+          <div key={r.id} className="card">
+            <div className="flex justify-between items-start mb-2">
+              <div>
+                <p className="font-medium">{r.productName} — {r.amount} {r.currency}</p>
+                <p className="text-xs text-white/50">{r.buyerEmail} · {new Date(r.createdAt).toLocaleString()}</p>
+              </div>
+              <span className={`badge ${r.status === "PENDING" ? "badge-warn" : r.status === "REFUNDED" ? "badge-ok" : ""}`}>
+                {r.status}
+              </span>
+            </div>
+            <p className="text-sm text-white/70 mb-2">💬 "{r.reason}"</p>
+            {r.agentSummary && (
+              <div className="bg-white/5 rounded p-2 mb-2 text-sm">
+                <p className="text-white/80">{r.agentSummary}</p>
+                <p className="text-xs text-white/50 mt-1">
+                  Agent recommendation: <b>{r.agentRecommendation === "approve" ? "✅ Approve" : "🚫 Decline"}</b>
+                  {" "}· <i>{r.agentEngine}</i>
+                </p>
+              </div>
+            )}
+            {r.status === "REFUNDED" && r.paypalRefundId && (
+              <p className="text-xs text-emerald-300">💸 Refunded via PayPal (refund id {r.paypalRefundId})</p>
+            )}
+            {r.status === "FAILED" && (
+              <p className="text-xs text-red-300">⚠️ Refund failed: {r.refundError} — no money moved.</p>
+            )}
+            {r.status === "PENDING" && (
+              <div className="mt-2">
+                <input
+                  className="input mb-2"
+                  placeholder="Optional note for the buyer…"
+                  value={note[r.id] ?? ""}
+                  onChange={(e) => setNote({ ...note, [r.id]: e.target.value })}
+                />
+                <div className="flex gap-2">
+                  <button
+                    disabled={busy === r.id}
+                    onClick={() => decide(r.id, true)}
+                    className="btn-primary text-sm"
+                  >
+                    ✅ Approve & refund
+                  </button>
+                  <button
+                    disabled={busy === r.id}
+                    onClick={() => decide(r.id, false)}
+                    className="btn-secondary text-sm"
+                  >
+                    Decline
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PriceWatchView({ pageId }: { pageId: string }) {
+  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [watches, setWatches] = useState<PriceWatch[]>([]);
+  const [available, setAvailable] = useState(true);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState<Page | null>(null);
+  const [watchPid, setWatchPid] = useState("");
+  const [watchQuery, setWatchQuery] = useState("");
+
+  const load = async () => {
+    if (!pageId) return;
+    try {
+      const [a, p] = await Promise.all([api.priceAlerts(pageId), api.getPage(pageId)]);
+      setAlerts(a.alerts);
+      setWatches(a.watches);
+      setAvailable(a.available);
+      setPage(p.page);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  useEffect(() => {
+    load();
+  }, [pageId]);
+
+  const addWatch = async () => {
+    if (!watchPid) return;
+    setErr("");
+    try {
+      await api.watchProduct(pageId, watchPid, watchQuery || undefined);
+      setWatchPid("");
+      setWatchQuery("");
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  const refresh = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await api.checkPrices(pageId);
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (wid: string) => {
+    try {
+      await api.unwatchProduct(pageId, wid);
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+
+  return (
+    <div>
+      {err && <p className="text-red-400 text-sm mb-3">{err}</p>}
+      <div className="card mb-4">
+        <p className="font-display font-bold mb-1">🏷️ Competitor Price Watch</p>
+        <p className="text-sm text-white/60 mb-3">
+          Track what competitors charge for similar products. Get alerted when someone undercuts you.
+          {!available && (
+            <span className="text-amber-300"> Web search unavailable (no Tavily key) — checks will report honestly as unavailable, never invented.</span>
+          )}
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <select className="input" value={watchPid} onChange={(e) => setWatchPid(e.target.value)}>
+            <option value="" className="bg-ink">Pick a product to watch…</option>
+            {(page?.products ?? []).map((p) => (
+              <option key={p.id} value={p.id} className="bg-ink">{p.name} — {p.price} {p.currency}</option>
+            ))}
+          </select>
+          <input
+            className="input"
+            placeholder="Search query (optional)"
+            value={watchQuery}
+            onChange={(e) => setWatchQuery(e.target.value)}
+          />
+          <button onClick={addWatch} disabled={!watchPid} className="btn-primary whitespace-nowrap text-sm">Watch</button>
+          <button onClick={refresh} disabled={busy} className="btn-secondary whitespace-nowrap text-sm">
+            {busy ? "Checking…" : "🔄 Check now"}
+          </button>
+        </div>
+      </div>
+      {alerts.length > 0 && (
+        <div className="mb-4">
+          <p className="text-sm mb-2 text-red-300">🔻 {alerts.length} undercut alert{alerts.length > 1 ? "s" : ""}</p>
+          <div className="grid gap-2">
+            {alerts.map((a) => (
+              <div key={a.watchId + a.competitorUrl} className="card border-red-500/30">
+                <p className="text-sm">
+                  <b>{a.productName}</b> (yours: {a.sellerPrice} {a.currency}) —{" "}
+                  <a href={a.competitorUrl} target="_blank" rel="noreferrer" className="underline text-sky-300">
+                    {a.competitorTitle}
+                  </a>{" "}
+                  at <b className="text-red-300">{a.competitorPrice} {a.currency}</b>{" "}
+                  (save {a.savings} {a.currency} there)
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="grid gap-2">
+        {watches.map((w) => (
+          <div key={w.id} className="card flex justify-between items-center">
+            <div>
+              <p className="text-sm font-medium">{w.productName} — {w.sellerPrice} {w.currency}</p>
+              <p className="text-xs text-white/50">
+                query: "{w.query}" · last check: {w.lastCheckedAt ? new Date(w.lastCheckedAt).toLocaleString() : "never"}
+                {w.lastError && <span className="text-amber-300"> · {w.lastError}</span>}
+              </p>
+            </div>
+            <button onClick={() => remove(w.id)} className="btn-secondary text-xs">Unwatch</button>
+          </div>
+        ))}
+        {watches.length === 0 && <p className="text-white/50 text-sm">No products watched yet.</p>}
       </div>
     </div>
   );

@@ -37,6 +37,8 @@ export interface Page {
     /** 1-30; only used when enabled */
     discountPercent?: number;
   };
+  /** return window in days for the refund agent; default 7 */
+  returnWindowDays?: number;
 }
 
 export type OrderStatus =
@@ -107,8 +109,8 @@ export interface AgentMessage {
   role: "buyer" | "agent" | "system";
   text: string;
   at: string;
-  /** detected language of the original text ("en" | "hi"), heuristic */
-  lang?: "en" | "hi";
+  /** detected language ("en" | "hi" | "hi-roman"), heuristic */
+  lang?: "en" | "hi" | "hi-roman";
   /** translation of text (shown alongside original in UI) */
   translatedText?: string;
   /** true ONLY when a real AI call produced translatedText */
@@ -198,6 +200,7 @@ function persist() {
           views: [...views.entries()],
           coupons: [...coupons.values()],
           abandonedCarts: [...abandonedCarts.values()],
+          returns: [...returns.values()],
           upsellsSuggested,
           upsellsAccepted,
         },
@@ -222,6 +225,7 @@ function load() {
       views?: Array<[string, number]>;
       coupons?: Coupon[];
       abandonedCarts?: AbandonedCart[];
+      returns?: ReturnRequest[];
       upsellsSuggested?: number;
       upsellsAccepted?: number;
     };
@@ -233,6 +237,7 @@ function load() {
     for (const [k, v] of d.views ?? []) views.set(k, v);
     for (const c of d.coupons ?? []) coupons.set(couponKey(c.pageId, c.code), c);
     for (const c of d.abandonedCarts ?? []) abandonedCarts.set(c.orderId, c);
+    for (const r of d.returns ?? []) returns.set(r.id, r);
     if (typeof d.upsellsSuggested === "number") upsellsSuggested = d.upsellsSuggested;
     if (typeof d.upsellsAccepted === "number") upsellsAccepted = d.upsellsAccepted;
   } catch {
@@ -355,6 +360,25 @@ export function setAbandonedRecovered(orderId: string, recovered: boolean): Aban
   return c;
 }
 
+// --- Returns / refunds ---
+export function saveReturn(r: ReturnRequest): void {
+  returns.set(r.id, r);
+  persist();
+}
+export function getReturn(id: string): ReturnRequest | null {
+  return returns.get(id) ?? null;
+}
+export function listReturns(pageId?: string): ReturnRequest[] {
+  const all = [...returns.values()];
+  return pageId ? all.filter((r) => r.pageId === pageId) : all;
+}
+export function findReturnByOrder(orderId: string): ReturnRequest | null {
+  for (const r of returns.values()) {
+    if (r.orderId === orderId && (r.status === "PENDING" || r.status === "APPROVED")) return r;
+  }
+  return null;
+}
+
 // --- Upsell analytics ---
 export function countUpsellSuggested(): number {
   upsellsSuggested += 1;
@@ -423,6 +447,40 @@ const coupons = new Map<string, Coupon>(); // key: pageId + ":" + CODE
 function couponKey(pageId: string, code: string): string {
   return `${pageId}:${code.toUpperCase()}`;
 }
+
+// --- Returns / refunds ---
+export type ReturnStatus =
+  | "PENDING" // buyer requested, awaiting seller decision
+  | "APPROVED" // seller approved, refund not yet processed
+  | "DECLINED" // seller declined
+  | "REFUNDED" // PayPal refund completed
+  | "FAILED"; // refund attempted but failed (honest error, retryable)
+
+export interface ReturnRequest {
+  id: string;
+  orderId: string;
+  paypalOrderId: string;
+  pageId: string;
+  productId: string;
+  productName: string;
+  amount: number;
+  currency: string;
+  buyerEmail: string;
+  reason: string;
+  status: ReturnStatus;
+  createdAt: string;
+  decidedAt?: string;
+  sellerNote?: string;
+  /** agent's drafted summary + recommendation for the seller */
+  agentSummary?: string;
+  agentRecommendation?: "approve" | "decline";
+  agentEngine?: string;
+  /** set on successful PayPal refund */
+  paypalRefundId?: string;
+  /** honest error when refund fails */
+  refundError?: string;
+}
+const returns = new Map<string, ReturnRequest>();
 export function saveCoupon(c: Coupon): void {
   coupons.set(couponKey(c.pageId, c.code), c);
   persist();

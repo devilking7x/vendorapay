@@ -87,7 +87,7 @@ export interface AgentMessage {
   role: "buyer" | "agent" | "system";
   text: string;
   at: string;
-  lang?: "en" | "hi";
+  lang?: "en" | "hi" | "hi-roman";
   translatedText?: string;
   translationAI?: boolean;
 }
@@ -277,6 +277,47 @@ export const api = {
       body: JSON.stringify({ category, description, currency }),
     }),
   getStats: () => req<{ stats: Stats }>("/api/stats"),
+  // Photo -> Listing (multimodal)
+  photoListing: (imageBase64: string, mimeType: string) =>
+    req<{ listing: PhotoListing }>("/api/ai/photo-listing", {
+      method: "POST",
+      body: JSON.stringify({ imageBase64, mimeType }),
+    }),
+  // Returns / refunds
+  listReturns: (pageId: string) =>
+    req<{ returns: ReturnRequest[]; returnWindowDays: number; defaultWindowDays: number }>(
+      `/api/pages/${encodeURIComponent(pageId)}/returns`
+    ),
+  decideReturn: (returnId: string, approved: boolean, sellerNote?: string) =>
+    req<{ return: ReturnRequest }>(`/api/returns/${encodeURIComponent(returnId)}/decide`, {
+      method: "POST",
+      body: JSON.stringify({ approved, sellerNote }),
+    }),
+  setReturnWindow: (pageId: string, days: number) =>
+    req<{ returnWindowDays: number }>(
+      `/api/pages/${encodeURIComponent(pageId)}/return-window`,
+      { method: "POST", body: JSON.stringify({ days }) }
+    ),
+  // Competitor price watch
+  watchProduct: (pageId: string, productId: string, query?: string) =>
+    req<{ watch: PriceWatch; available: boolean }>(
+      `/api/pages/${encodeURIComponent(pageId)}/products/${encodeURIComponent(productId)}/watch`,
+      { method: "POST", body: JSON.stringify({ query }) }
+    ),
+  unwatchProduct: (pageId: string, watchId: string) =>
+    req<{ ok: boolean }>(
+      `/api/pages/${encodeURIComponent(pageId)}/watches/${encodeURIComponent(watchId)}`,
+      { method: "DELETE" }
+    ),
+  priceAlerts: (pageId: string) =>
+    req<{ alerts: PriceAlert[]; watches: PriceWatch[]; available: boolean }>(
+      `/api/pages/${encodeURIComponent(pageId)}/price-alerts`
+    ),
+  checkPrices: (pageId?: string, watchId?: string) =>
+    req<{ checked: PriceWatch[]; available: boolean }>(`/api/pricewatch/check`, {
+      method: "POST",
+      body: JSON.stringify({ pageId, watchId }),
+    }),
 };
 
 export interface Coupon {
@@ -333,4 +374,53 @@ export interface Stats {
   topProducts: Array<{ name: string; revenue: number; orders: number }>;
   upsellsSuggested: number;
   upsellsAccepted: number;
+}
+export interface ReturnRequest {
+  id: string;
+  orderId: string;
+  pageId: string;
+  productName: string;
+  amount: number;
+  currency: string;
+  buyerEmail: string;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "DECLINED" | "REFUNDED" | "FAILED";
+  createdAt: string;
+  decidedAt?: string;
+  sellerNote?: string;
+  agentSummary?: string;
+  agentRecommendation?: "approve" | "decline";
+  agentEngine?: string;
+  paypalRefundId?: string;
+  refundError?: string;
+}
+export interface PriceWatch {
+  id: string;
+  pageId: string;
+  productId: string;
+  productName: string;
+  sellerPrice: number;
+  currency: string;
+  query: string;
+  createdAt: string;
+  lastCheckedAt?: string;
+  lastError?: string;
+}
+export interface PriceAlert {
+  watchId: string;
+  productName: string;
+  sellerPrice: number;
+  competitorTitle: string;
+  competitorPrice: number;
+  competitorUrl: string;
+  currency: string;
+  savings: number;
+}
+export interface PhotoListing {
+  title: string;
+  description: string;
+  suggestedPrice: number;
+  category: string;
+  ai: boolean;
+  engine: string;
 }

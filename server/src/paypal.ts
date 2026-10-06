@@ -331,3 +331,57 @@ export async function createSubscriptionPlan(args: {
   });
   return { id: String(plan.id ?? ""), status: String(plan.status ?? "ACTIVE") };
 }
+
+export interface PayPalRefund {
+  id: string;
+  status: string;
+}
+
+/**
+ * Look up the PayPal capture ID for a captured order (needed for refunds).
+ * Returns null when the order has no completed capture.
+ */
+export async function getCaptureIdForOrder(
+  paypalOrderId: string
+): Promise<string | null> {
+  if (MOCK) {
+    return paypalOrderId.startsWith("MOCK-") ? `MOCK-CAPTURE-${paypalOrderId.slice(5, 13)}` : null;
+  }
+  if (!CLIENT_ID || !SECRET) throw new Error("PAYPAL_CLIENT_ID/SECRET not configured");
+  const data = await liveRest("GET", `/v2/checkout/orders/${paypalOrderId}`, undefined);
+  const units = (data.purchase_units ?? []) as Array<{
+    payments?: { captures?: Array<{ id?: string; status?: string }> };
+  }>;
+  for (const u of units) {
+    for (const c of u.payments?.captures ?? []) {
+      if (c.id && c.status === "COMPLETED") return c.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Refund a captured payment. SELLER-APPROVAL is enforced by the caller
+ * (returns.ts) — this function never decides on its own.
+ * Honest: throws PayPalError on failure, never fakes a refund.
+ */
+export async function refundCapture(
+  captureId: string,
+  amount?: number,
+  currency?: string
+): Promise<PayPalRefund> {
+  if (MOCK) {
+    return { id: rid("MOCK-REFUND"), status: "COMPLETED" };
+  }
+  if (!CLIENT_ID || !SECRET) throw new Error("PAYPAL_CLIENT_ID/SECRET not configured");
+  const body =
+    amount !== undefined && currency
+      ? { amount: { value: amount.toFixed(2), currency_code: currency } }
+      : {};
+  const data = await liveRest(
+    "POST",
+    `/v2/payments/captures/${captureId}/refund`,
+    body
+  );
+  return { id: String(data.id ?? ""), status: String(data.status ?? "COMPLETED") };
+}

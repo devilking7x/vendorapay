@@ -37,6 +37,9 @@ export default function Builder({ nav }: { nav: (h: string) => void }) {
   const [speechNote, setSpeechNote] = useState("");
   const [coach, setCoach] = useState<PriceSuggestion | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoNote, setPhotoNote] = useState("");
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const recRef = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
@@ -129,6 +132,43 @@ export default function Builder({ nav }: { nav: (h: string) => void }) {
     }
   };
 
+  const onPhotoPicked = async (file: File | undefined) => {
+    setPhotoNote("");
+    setErr("");
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setPhotoNote("⚠️ Photo is over 5MB — pick a smaller one.");
+      return;
+    }
+    setPhotoLoading(true);
+    try {
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
+        r.onerror = () => reject(new Error("could not read photo"));
+        r.readAsDataURL(file);
+      });
+      const r = await api.photoListing(b64, file.type || "image/jpeg");
+      if (r.listing.ai) {
+        // Pre-fill the builder form from the AI-drafted listing.
+        const parts = [
+          r.listing.title,
+          r.listing.description,
+          r.listing.suggestedPrice > 0 ? `Suggested price: $${r.listing.suggestedPrice}.` : "",
+        ].filter(Boolean);
+        setDesc(parts.join(" "));
+        setPhotoNote(`📸 AI drafted a listing from your photo [${r.listing.engine}] — review & edit, then build!`);
+      } else {
+        setPhotoNote(`⚠️ ${r.listing.engine}`);
+      }
+    } catch (e) {
+      setPhotoNote(`⚠️ Photo listing failed: ${(e as Error).message}`);
+    } finally {
+      setPhotoLoading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-10">
       <h1 className="font-display font-extrabold text-3xl mb-2">🛠️ AI Page Builder</h1>
@@ -203,7 +243,18 @@ export default function Builder({ nav }: { nav: (h: string) => void }) {
           <button onClick={askCoach} disabled={coachLoading} className="btn-ghost">
             {coachLoading ? "Thinking…" : "💡 Pricing coach"}
           </button>
+          <button onClick={() => fileRef.current?.click()} disabled={photoLoading} className="btn-ghost">
+            {photoLoading ? "Reading photo…" : "📸 Photo → Listing"}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => onPhotoPicked(e.target.files?.[0])}
+          />
         </div>
+        {photoNote && <p className="text-sm text-white/70">{photoNote}</p>}
 
         {coach && (
           <div className="bg-ink/50 border border-gold/30 rounded-xl p-4">

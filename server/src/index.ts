@@ -61,6 +61,24 @@ import {
   nudgeCart,
   recoveryStats,
 } from "./recovery.js";
+import { describeProduct, validatePhotoUpload } from "./vision.js";
+import {
+  decideReturn,
+  listPageReturns,
+  requestReturn,
+  returnWindowDays,
+  summarizeForSeller,
+  DEFAULT_RETURN_WINDOW_DAYS,
+} from "./returns.js";
+import {
+  checkWatch,
+  getAlerts,
+  getWatch,
+  listWatches,
+  priceWatchAvailable,
+  unwatch,
+  watchProduct,
+} from "./pricewatch.js";
 
 const app = express();
 app.use(cors());
@@ -302,6 +320,173 @@ app.post("/api/pages/:id/recovery-settings", (req, res) => {
   };
   savePage(page);
   res.json({ recoverySettings: page.recoverySettings });
+});
+
+// ---------- Photo -> Listing (multimodal) ----------
+// Base64 JSON upload (no multipart dependency). 8MB body limit on this route only.
+app.post(
+  "/api/ai/photo-listing",
+  express.json({ limit: "8mb" }),
+  async (req, res) => {
+    const { imageBase64, mimeType } = (req.body ?? {}) as {
+      imageBase64?: string;
+      mimeType?: string;
+    };
+    if (typeof imageBase64 !== "string" || typeof mimeType !== "string") {
+      res.status(400).json({ error: "imageBase64 and mimeType are required" });
+      return;
+    }
+    const clean = imageBase64.replace(/^data:[^;]+;base64,/, "");
+    let bytes: number;
+    try {
+      bytes = Buffer.from(clean, "base64").length;
+    } catch {
+      res.status(400).json({ error: "invalid base64 image data" });
+      return;
+    }
+    const problem = validatePhotoUpload(mimeType, bytes);
+    if (problem) {
+      res.status(400).json({ error: problem });
+      return;
+    }
+    const listing = await describeProduct(clean, mimeType);
+    res.json({ listing });
+  }
+);
+
+// ---------- Returns / refunds ----------
+// Buyer initiates a return.
+app.post("/api/orders/:id/return", async (req, res) => {
+  const { reason } = (req.body ?? {}) as { reason?: string };
+  const r = requestReturn(req.params.id, String(reason ?? ""));
+  if (!r.ok) {
+    res.status(400).json({ error: r.error });
+    return;
+  }
+  // Draft the agent summary for the seller (best effort, honest fallback).
+  const withSummary = await summarizeForSeller(r.return!.id);
+  res.json({ return: withSummary ?? r.return });
+});
+
+// Seller lists returns for a page.
+app.get("/api/pages/:id/returns", (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  res.json({
+    returns: listPageReturns(page.id),
+    returnWindowDays: returnWindowDays(page.id),
+    defaultWindowDays: DEFAULT_RETURN_WINDOW_DAYS,
+  });
+});
+
+// Seller refreshes the agent summary for a return.
+app.post("/api/returns/:id/summary", async (req, res) => {
+  const r = await summarizeForSeller(req.params.id);
+  if (!r) {
+    res.status(404).json({ error: "return not found" });
+    return;
+  }
+  res.json({ return: r });
+});
+
+// Seller decides: approve -> real PayPal refund; decline -> honest message.
+// HARD GUARDRAIL: no refund without explicit seller approval.
+app.post("/api/returns/:id/decide", async (req, res) => {
+  const { approved, sellerNote } = (req.body ?? {}) as {
+    approved?: boolean;
+    sellerNote?: string;
+  };
+  const r = await decideReturn(req.params.id, approved === true, sellerNote);
+  if (!r.ok) {
+    res.status(400).json({ error: r.error, return: r.return ?? null });
+    return;
+  }
+  res.json({ return: r.return });
+});
+
+// Seller configures the return window (0 = no returns).
+app.post("/api/pages/:id/return-window", (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  const { days } = (req.body ?? {}) as { days?: number };
+  const d = typeof days === "number" ? Math.min(90, Math.max(0, Math.round(days))) : DEFAULT_RETURN_WINDOW_DAYS;
+  page.returnWindowDays = d;
+  savePage(page);
+  res.json({ returnWindowDays: d });
+});
+
+// ---------- Competitor price watch ----------
+// Seller registers a product for watching.
+app.post("/api/pages/:id/products/:pid/watch", (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  const product = page.products.find((p) => p.id === req.params.pid);
+  if (!product) {
+    res.status(404).json({ error: "product not found" });
+    return;
+  }
+  const { query } = (req.body ?? {}) as { query?: string };
+  const w = watchProduct(
+    page.id,
+    product.id,
+    product.name,
+    product.price,
+    product.currency,
+    String(query ?? "")
+  );
+  res.json({ watch: w, available: priceWatchAvailable() });
+});
+
+// Seller removes a watch.
+app.delete("/api/pages/:id/watches/:wid", (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  const w = getWatch(req.params.wid);
+  if (!w || w.pageId !== page.id) {
+    res.status(404).json({ error: "watch not found" });
+    return;
+  }
+  unwatch(w.id);
+  res.json({ ok: true });
+});
+
+// Manual price-check refresh (on demand — no hidden background schedule).
+app.post("/api/pricewatch/check", async (req, res) => {
+  const { watchId, pageId } = (req.body ?? {}) as { watchId?: string; pageId?: string };
+  const targets = watchId
+    ? ([getWatch(String(watchId))].filter(Boolean) as NonNullable<ReturnType<typeof getWatch>>[])
+    : listWatches(pageId ? String(pageId) : undefined);
+  const checked: unknown[] = [];
+  for (const w of targets) {
+    checked.push(await checkWatch(w.id));
+  }
+  res.json({ checked, available: priceWatchAvailable() });
+});
+
+// Alerts: competitors priced below the seller.
+app.get("/api/pages/:id/price-alerts", (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  res.json({
+    alerts: getAlerts(page.id),
+    watches: listWatches(page.id),
+    available: priceWatchAvailable(),
+  });
 });
 
 app.post("/api/orders/:id/capture", async (req, res) => {
