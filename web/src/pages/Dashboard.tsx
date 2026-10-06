@@ -612,7 +612,7 @@ function AnalyticsView() {
               <div key={p.pageId} className="flex items-center justify-between gap-2 text-sm">
                 <p className="truncate text-white/80">{p.title}</p>
                 <p className="text-white/50 shrink-0 text-xs">
-                  {p.views} views · {p.orders} orders · {p.conversion}%
+                  {p.views} views · {p.orders} {p.orders === 1 ? "order" : "orders"} · {p.conversion}%
                 </p>
               </div>
             ))}
@@ -842,6 +842,7 @@ function RecoveryView({ pageId }: { pageId: string }) {
   const [sweetenerOn, setSweetenerOn] = useState(false);
   const [sweetenerPct, setSweetenerPct] = useState("10");
   const [nudgeResult, setNudgeResult] = useState("");
+  const [savedMsg, setSavedMsg] = useState("");
 
   const load = async () => {
     if (!pageId) return;
@@ -874,8 +875,11 @@ function RecoveryView({ pageId }: { pageId: string }) {
 
   const saveSettings = async () => {
     setErr("");
+    setSavedMsg("");
     try {
       await api.setRecoverySettings(pageId, sweetenerOn, Number(sweetenerPct));
+      setSavedMsg("✓ Settings saved.");
+      setTimeout(() => setSavedMsg(""), 2000);
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -914,6 +918,7 @@ function RecoveryView({ pageId }: { pageId: string }) {
           )}
           {sweetenerOn && <span className="text-sm text-white/60">% off (single-use coupon, auto-created)</span>}
           <button onClick={saveSettings} className="btn-ghost text-sm">Save settings</button>
+          {savedMsg && <span className="text-mint text-sm">{savedMsg}</span>}
         </div>
       </div>
 
@@ -960,6 +965,7 @@ function ReturnsView({ pageId }: { pageId: string }) {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState<Record<string, string>>({});
+  const [savedMsg, setSavedMsg] = useState("");
 
   const load = async () => {
     if (!pageId) return;
@@ -990,9 +996,12 @@ function ReturnsView({ pageId }: { pageId: string }) {
 
   const saveWindow = async () => {
     setErr("");
+    setSavedMsg("");
     try {
       const r = await api.setReturnWindow(pageId, windowDays);
       setWindowDays(r.returnWindowDays);
+      setSavedMsg("✓ Saved.");
+      setTimeout(() => setSavedMsg(""), 2000);
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -1019,6 +1028,7 @@ function ReturnsView({ pageId }: { pageId: string }) {
             className="input w-20"
           />
           <button onClick={saveWindow} className="btn-secondary text-sm">Save</button>
+          {savedMsg && <span className="text-mint text-sm">{savedMsg}</span>}
         </div>
       </div>
       {pending.length === 0 && returns.length === 0 && (
@@ -1172,7 +1182,7 @@ function PriceWatchView({ pageId }: { pageId: string }) {
             onChange={(e) => setWatchQuery(e.target.value)}
           />
           <button onClick={addWatch} disabled={!watchPid} className="btn-primary whitespace-nowrap text-sm">Watch</button>
-          <button onClick={refresh} disabled={busy} className="btn-secondary whitespace-nowrap text-sm">
+          <button onClick={refresh} disabled={busy || watches.length === 0} title={watches.length === 0 ? "Watch a product first" : "Check prices now"} className="btn-secondary whitespace-nowrap text-sm">
             {busy ? "Checking…" : "🔄 Check now"}
           </button>
         </div>
