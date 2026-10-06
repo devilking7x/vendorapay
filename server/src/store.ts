@@ -155,6 +155,7 @@ function persist() {
           plans: [...plans.values()],
           sessions: [...sessions.values()],
           views: [...views.entries()],
+          coupons: [...coupons.values()],
         },
         null,
         2
@@ -175,6 +176,7 @@ function load() {
       plans?: SubscriptionPlan[];
       sessions?: AgentSession[];
       views?: Array<[string, number]>;
+      coupons?: Coupon[];
     };
     for (const p of d.pages ?? []) pages.set(p.id, p);
     for (const o of d.orders ?? []) orders.set(o.id, o);
@@ -182,6 +184,7 @@ function load() {
     for (const s of d.plans ?? []) plans.set(s.id, s);
     for (const s of d.sessions ?? []) sessions.set(s.id, s);
     for (const [k, v] of d.views ?? []) views.set(k, v);
+    for (const c of d.coupons ?? []) coupons.set(couponKey(c.pageId, c.code), c);
   } catch {
     /* fresh start */
   }
@@ -313,6 +316,43 @@ export interface GlobalStats {
   pages: PageStats[];
   topProducts: Array<{ name: string; revenue: number; orders: number }>;
 }
+// --- Coupons (discount codes) ---
+export interface Coupon {
+  code: string;
+  pageId: string;
+  percentOff: number; // 1-90
+  maxUses: number;
+  usedCount: number;
+  createdAt: string;
+}
+const coupons = new Map<string, Coupon>(); // key: pageId + ":" + CODE
+
+function couponKey(pageId: string, code: string): string {
+  return `${pageId}:${code.toUpperCase()}`;
+}
+export function saveCoupon(c: Coupon): void {
+  coupons.set(couponKey(c.pageId, c.code), c);
+  persist();
+}
+export function getCoupon(pageId: string, code: string): Coupon | null {
+  return coupons.get(couponKey(pageId, code)) ?? null;
+}
+export function listCoupons(pageId: string): Coupon[] {
+  return [...coupons.values()].filter((c) => c.pageId === pageId);
+}
+/** Validate + consume one use. Returns discounted info or an error string. */
+export function applyCoupon(
+  pageId: string,
+  code: string
+): { coupon: Coupon; percentOff: number } | { error: string } {
+  const c = getCoupon(pageId, code);
+  if (!c) return { error: "Invalid coupon code." };
+  if (c.usedCount >= c.maxUses) return { error: "This coupon has been fully used." };
+  c.usedCount += 1;
+  persist();
+  return { coupon: c, percentOff: c.percentOff };
+}
+
 export function getStats(): GlobalStats {
   const allOrders = [...orders.values()];
   const paid = allOrders.filter((o) =>

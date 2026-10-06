@@ -304,6 +304,54 @@ export async function suggestPrice(
   };
 }
 
+// ---------- AI dispute helper ----------
+
+export interface DisputeDraft {
+  subject: string;
+  message: string;
+  tone: string;
+  engine: string;
+}
+
+export async function draftDisputeResponse(
+  sellerName: string,
+  productName: string,
+  amount: number,
+  currency: string,
+  buyerName: string,
+  disputeReason: string,
+  sellerNotes: string
+): Promise<DisputeDraft> {
+  const ai = await aiJSON<{ subject?: string; message?: string }>(
+    `You are a professional dispute-resolution assistant for an online seller named "${sellerName}". ` +
+      `A buyer "${buyerName}" opened a PayPal dispute about "${productName}" (${amount} ${currency}). ` +
+      `Buyer's stated reason: "${disputeReason.slice(0, 300)}". ` +
+      `Seller's notes: "${sellerNotes.slice(0, 300)}". ` +
+      `Write a calm, professional, factual response the seller can send to PayPal / the buyer: acknowledge the concern, state the facts, propose a fair resolution (refund/partial refund/redelivery). ` +
+      `Keep it under 150 words, no legal threats. Return ONLY JSON: {"subject":"short subject line","message":"the response text"}.`
+  );
+  if (ai && ai.message) {
+    return {
+      subject: String(ai.subject ?? "Re: dispute — let's resolve this fairly").slice(0, 120),
+      message: String(ai.message).slice(0, 1500),
+      tone: "professional",
+      engine: AI_PROVIDER,
+    };
+  }
+  // Template fallback (honest label)
+  return {
+    subject: `Re: dispute on "${productName}" — proposed resolution`,
+    message:
+      `Hi ${buyerName},\n\nThanks for reaching out. I take every dispute seriously. ` +
+      `Regarding your concern ("${disputeReason.slice(0, 120)}"): ` +
+      `${sellerNotes ? `here's my side — ${sellerNotes.slice(0, 200)}. ` : ""}` +
+      `I'd like to resolve this fairly: I'm happy to offer a full refund or redeliver the work to your satisfaction, whichever you prefer. ` +
+      `Please reply within 48 hours so we can close this out.\n\nBest,\n${sellerName}`,
+    tone: "professional",
+    engine: "template",
+  };
+}
+
 // ---------- AI support bot (buyer questions on the public page) ----------
 
 export async function supportAnswer(

@@ -7,6 +7,8 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
   const [err, setErr] = useState("");
   const [buying, setBuying] = useState<Product | null>(null);
   const [email, setEmail] = useState("");
+  const [coupon, setCoupon] = useState("");
+  const [couponApplied, setCouponApplied] = useState<string | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
   const [busy, setBusy] = useState(false);
   const [botOpen, setBotOpen] = useState(false);
@@ -28,6 +30,8 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
   const startCheckout = (p: Product) => {
     setBuying(p);
     setOrder(null);
+    setCoupon("");
+    setCouponApplied(null);
     setErr("");
   };
 
@@ -40,8 +44,9 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
     setBusy(true);
     setErr("");
     try {
-      const r = await api.createOrder(page.id, buying.id, email);
+      const r = await api.createOrder(page.id, buying.id, email, coupon || undefined);
       setOrder(r.order);
+      if (r.appliedCoupon) setCouponApplied(r.appliedCoupon);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -179,6 +184,16 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
+                <label className="text-sm text-white/70 block mb-1">Coupon code (optional)</label>
+                <input
+                  className="input mb-3 uppercase"
+                  placeholder="SAVE20"
+                  value={coupon}
+                  onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+                />
+                {couponApplied && (
+                  <p className="text-mint text-sm mb-2">🎟️ Coupon {couponApplied} applied!</p>
+                )}
                 {err && <p className="text-red-300 text-sm mb-2">{err}</p>}
                 <div className="flex gap-2">
                   <button onClick={createOrder} disabled={busy} className="btn-primary flex-1">

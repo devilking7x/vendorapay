@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { agentStep, confirmSession, declineSession, startSession } from "./agent.js";
 import {
   buildPageFromChat,
+  draftDisputeResponse,
   draftInvoice,
   draftReminder,
   suggestPrice,
@@ -23,13 +24,16 @@ import {
 } from "./paypal.js";
 import {
   addProduct,
+  applyCoupon,
   createDemoPage,
+  getCoupon,
   getInvoice,
   getOrder,
   getPage,
   getPlan,
   getSession,
   getStats,
+  listCoupons,
   listInvoices,
   listOrders,
   listPages,
@@ -38,6 +42,7 @@ import {
   recordView,
   removeProduct,
   rid,
+  saveCoupon,
   saveInvoice,
   saveOrder,
   savePage,
@@ -159,7 +164,7 @@ app.delete("/api/pages/:id/products/:pid", (req, res) => {
 
 // ---------- Orders (PayPal Checkout) ----------
 app.post("/api/orders", async (req, res) => {
-  const { pageId, productId, buyerEmail, amount } = req.body ?? {};
+  const { pageId, productId, buyerEmail, amount, couponCode } = req.body ?? {};
   const page = getPage(String(pageId ?? ""));
   const product = page?.products.find((p) => p.id === productId);
   if (!page || !product) {
@@ -170,7 +175,18 @@ app.post("/api/orders", async (req, res) => {
     res.status(503).json({ error: "PayPal is not configured (set keys or PAYPAL_MOCK=1)" });
     return;
   }
-  const charge = Number(amount) > 0 ? Number(amount) : product.price;
+  let charge = Number(amount) > 0 ? Number(amount) : product.price;
+  let appliedCoupon: string | null = null;
+  if (couponCode && typeof couponCode === "string" && couponCode.trim()) {
+    const r = applyCoupon(page.id, couponCode.trim());
+    if ("error" in r) {
+      res.status(400).json({ error: r.error });
+      return;
+    }
+    appliedCoupon = r.coupon.code;
+    charge = Math.round(charge * (1 - r.percentOff / 100) * 100) / 100;
+    if (charge < 1) charge = 1; // PayPal minimum sanity
+  }
   try {
     const pp = await createOrder(charge, product.currency, `${product.name} — ${page.title}`);
     const order = {
@@ -186,10 +202,54 @@ app.post("/api/orders", async (req, res) => {
       createdAt: new Date().toISOString(),
     };
     saveOrder(order);
-    res.json({ order, approveUrl: pp.approveUrl, paypal: paypalMode() });
+    res.json({ order, approveUrl: pp.approveUrl, paypal: paypalMode(), appliedCoupon });
   } catch (e) {
     res.status(502).json({ error: `order failed: ${(e as Error).message}` });
   }
+});
+
+// ---------- Coupons ----------
+app.post("/api/pages/:id/coupons", (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  const { code, percentOff, maxUses } = req.body ?? {};
+  const cleanCode = String(code ?? "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 20);
+  const pct = Math.round(Number(percentOff));
+  const uses = Math.max(1, Math.floor(Number(maxUses) || 100));
+  if (!cleanCode || cleanCode.length < 3) {
+    res.status(400).json({ error: "code must be 3-20 alphanumeric characters" });
+    return;
+  }
+  if (!(pct >= 1 && pct <= 90)) {
+    res.status(400).json({ error: "percentOff must be 1-90" });
+    return;
+  }
+  if (getCoupon(page.id, cleanCode)) {
+    res.status(400).json({ error: "coupon code already exists for this page" });
+    return;
+  }
+  const coupon = {
+    code: cleanCode,
+    pageId: page.id,
+    percentOff: pct,
+    maxUses: uses,
+    usedCount: 0,
+    createdAt: new Date().toISOString(),
+  };
+  saveCoupon(coupon);
+  res.json({ coupon });
+});
+
+app.get("/api/pages/:id/coupons", (req, res) => {
+  const page = getPage(req.params.id);
+  if (!page) {
+    res.status(404).json({ error: "page not found" });
+    return;
+  }
+  res.json({ coupons: listCoupons(page.id) });
 });
 
 app.post("/api/orders/:id/capture", async (req, res) => {
@@ -524,6 +584,31 @@ app.post("/api/pricing/suggest", async (req, res) => {
     String(currency ?? "USD").toUpperCase().slice(0, 3)
   );
   res.json(s);
+});
+
+// ---------- AI dispute helper ----------
+app.post("/api/disputes/draft", async (req, res) => {
+  const {
+    orderId,
+    disputeReason,
+    sellerNotes,
+  } = req.body ?? {};
+  if (typeof disputeReason !== "string" || !disputeReason.trim()) {
+    res.status(400).json({ error: "disputeReason is required" });
+    return;
+  }
+  const order = orderId ? getOrder(String(orderId)) : null;
+  const page = order ? getPage(order.pageId) : null;
+  const draft = await draftDisputeResponse(
+    page?.sellerName ?? "Seller",
+    order?.productName ?? "your order",
+    order?.amount ?? 0,
+    order?.currency ?? "USD",
+    order?.buyerEmail ?? "buyer",
+    disputeReason,
+    String(sellerNotes ?? "")
+  );
+  res.json({ draft });
 });
 
 // ---------- One-click demo ----------

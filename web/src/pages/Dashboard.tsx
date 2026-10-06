@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import {
   api,
   type AgentSession,
+  type Coupon,
+  type DisputeDraft,
   type Invoice,
   type Order,
   type Page,
@@ -9,7 +11,7 @@ import {
   type SubscriptionPlan,
 } from "../api";
 
-type Tab = "orders" | "invoices" | "plans" | "agent" | "analytics";
+type Tab = "orders" | "invoices" | "plans" | "agent" | "analytics" | "disputes" | "coupons";
 
 function statusChip(s: string) {
   return <span className={`chip status-${s}`}>{s}</span>;
@@ -256,7 +258,7 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
       ) : (
         <>
           <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
-            {(["orders", "invoices", "plans", "agent", "analytics"] as Tab[]).map((t) => (
+            {(["orders", "invoices", "plans", "agent", "analytics", "disputes", "coupons"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -267,6 +269,8 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
                 {t === "plans" && "🔁 Subscriptions"}
                 {t === "agent" && "🤖 Agent sales"}
                 {t === "analytics" && "📊 Analytics"}
+                {t === "disputes" && "⚖️ Disputes"}
+                {t === "coupons" && "🎟️ Coupons"}
               </button>
             ))}
           </div>
@@ -521,6 +525,14 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
           {tab === "analytics" && (
             <AnalyticsView />
           )}
+
+          {tab === "disputes" && (
+            <DisputesView orders={orders} />
+          )}
+
+          {tab === "coupons" && (
+            <CouponsView pageId={pageId} />
+          )}
         </>
       )}
     </div>
@@ -596,6 +608,210 @@ function AnalyticsView() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function DisputesView({ orders }: { orders: Order[] }) {
+  const [orderId, setOrderId] = useState("");
+  const [reason, setReason] = useState("");
+  const [notes, setNotes] = useState("");
+  const [draft, setDraft] = useState<DisputeDraft | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const generate = async () => {
+    if (!reason.trim()) {
+      setErr("Describe the buyer's dispute reason first.");
+      return;
+    }
+    setLoading(true);
+    setErr("");
+    setDraft(null);
+    try {
+      const r = await api.draftDispute(orderId, reason, notes);
+      setDraft(r.draft);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!draft) return;
+    try {
+      await navigator.clipboard.writeText(`${draft.subject}\n\n${draft.message}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card space-y-3">
+        <div>
+          <p className="font-display font-bold">⚖️ AI Dispute Helper</p>
+          <p className="text-sm text-white/60">
+            Got a PayPal dispute? Pick the order, describe the issue — AI drafts a calm,
+            professional response you can send.
+          </p>
+        </div>
+        {orders.length > 0 && (
+          <div>
+            <label className="text-sm text-white/70 block mb-1">Related order (optional)</label>
+            <select className="input w-full" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
+              <option value="">— No specific order —</option>
+              {orders.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.productName} — {o.amount} {o.currency} ({o.status})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div>
+          <label className="text-sm text-white/70 block mb-1">Buyer's dispute reason *</label>
+          <textarea
+            className="input w-full min-h-20"
+            placeholder='e.g. "Buyer says the logo files were never delivered"'
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-sm text-white/70 block mb-1">Your notes (optional)</label>
+          <textarea
+            className="input w-full min-h-16"
+            placeholder="e.g. Files were emailed on Oct 2, buyer confirmed receipt"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+        {err && <p className="text-red-400 text-sm">{err}</p>}
+        <button onClick={generate} disabled={loading} className="btn-primary">
+          {loading ? "✍️ Drafting…" : "✍️ Draft my response"}
+        </button>
+      </div>
+      {draft && (
+        <div className="card space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-white/50">
+              Drafted by {draft.engine === "template" ? "smart template" : draft.engine} · review before sending
+            </p>
+            <button onClick={copy} className="btn-ghost !px-3 !py-1 text-sm">
+              {copied ? "✅ Copied!" : "📋 Copy"}
+            </button>
+          </div>
+          <p className="font-bold">{draft.subject}</p>
+          <p className="text-sm text-white/80 whitespace-pre-wrap">{draft.message}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CouponsView({ pageId }: { pageId: string }) {
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [code, setCode] = useState("");
+  const [pct, setPct] = useState("20");
+  const [uses, setUses] = useState("100");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    if (!pageId) return;
+    try {
+      const r = await api.listCoupons(pageId);
+      setCoupons(r.coupons);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  useEffect(() => {
+    load();
+  }, [pageId]);
+
+  const create = async () => {
+    setErr("");
+    setBusy(true);
+    try {
+      await api.createCoupon(pageId, code, Number(pct), Number(uses));
+      setCode("");
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card space-y-3">
+        <div>
+          <p className="font-display font-bold">🎟️ Discount Coupons</p>
+          <p className="text-sm text-white/60">
+            Create coupon codes buyers can apply at checkout — e.g. SAVE20 for 20% off.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <label className="text-sm text-white/70 block mb-1">Code</label>
+            <input
+              className="input w-full uppercase"
+              placeholder="SAVE20"
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+            />
+          </div>
+          <div>
+            <label className="text-sm text-white/70 block mb-1">% off</label>
+            <input
+              className="input w-full"
+              type="number"
+              min={1}
+              max={90}
+              value={pct}
+              onChange={(e) => setPct(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-sm text-white/70 block mb-1">Max uses</label>
+            <input
+              className="input w-full"
+              type="number"
+              min={1}
+              value={uses}
+              onChange={(e) => setUses(e.target.value)}
+            />
+          </div>
+        </div>
+        {err && <p className="text-red-400 text-sm">{err}</p>}
+        <button onClick={create} disabled={busy || !code.trim()} className="btn-primary">
+          {busy ? "Creating…" : "➕ Create coupon"}
+        </button>
+      </div>
+      <div className="card">
+        <p className="font-display font-bold mb-3">Active coupons</p>
+        {coupons.length === 0 ? (
+          <p className="text-white/50 text-sm">No coupons yet — create your first one above!</p>
+        ) : (
+          <div className="space-y-2">
+            {coupons.map((c) => (
+              <div key={c.code} className="flex items-center justify-between gap-2 text-sm">
+                <p className="font-mono font-bold text-gold">{c.code}</p>
+                <p className="text-white/60 text-xs">
+                  {c.percentOff}% off · {c.usedCount}/{c.maxUses} used
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -146,11 +146,26 @@ export const api = {
       body: JSON.stringify(p),
     }),
   demo: () => req<{ page: Page; paypal: string }>("/api/demo", { method: "POST" }),
-  createOrder: (pageId: string, productId: string, buyerEmail: string) =>
-    req<{ order: Order; approveUrl?: string; paypal: string }>("/api/orders", {
+  createOrder: (pageId: string, productId: string, buyerEmail: string, couponCode?: string) =>
+    req<{ order: Order; approveUrl?: string; paypal: string; appliedCoupon?: string | null }>(
+      "/api/orders",
+      {
+        method: "POST",
+        body: JSON.stringify({ pageId, productId, buyerEmail, couponCode }),
+      }
+    ),
+  draftDispute: (orderId: string, disputeReason: string, sellerNotes: string) =>
+    req<{ draft: DisputeDraft }>("/api/disputes/draft", {
       method: "POST",
-      body: JSON.stringify({ pageId, productId, buyerEmail }),
+      body: JSON.stringify({ orderId, disputeReason, sellerNotes }),
     }),
+  createCoupon: (pageId: string, code: string, percentOff: number, maxUses: number) =>
+    req<{ coupon: Coupon }>(`/api/pages/${encodeURIComponent(pageId)}/coupons`, {
+      method: "POST",
+      body: JSON.stringify({ code, percentOff, maxUses }),
+    }),
+  listCoupons: (pageId: string) =>
+    req<{ coupons: Coupon[] }>(`/api/pages/${encodeURIComponent(pageId)}/coupons`),
   captureOrder: (id: string) =>
     req<{ order: Order }>(`/api/orders/${encodeURIComponent(id)}/capture`, {
       method: "POST",
@@ -241,6 +256,20 @@ export const api = {
   getStats: () => req<{ stats: Stats }>("/api/stats"),
 };
 
+export interface Coupon {
+  code: string;
+  pageId: string;
+  percentOff: number;
+  maxUses: number;
+  usedCount: number;
+  createdAt: string;
+}
+export interface DisputeDraft {
+  subject: string;
+  message: string;
+  tone: string;
+  engine: string;
+}
 export interface PageStats {
   pageId: string;
   title: string;
