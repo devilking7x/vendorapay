@@ -155,7 +155,7 @@ export async function createInvoiceDraft(args: {
     detail: {
       currency_code: args.currency,
       note: args.notes.slice(0, 400),
-      payment_term: { term_type: "NET_7" },
+      payment_term: { term_type: "DUE_ON_DATE_SPECIFIED", due_date: args.dueDate },
     },
     primary_recipients: [{ billing_info: { email_address: args.buyerEmail } }],
     items: args.items.map((i) => ({
