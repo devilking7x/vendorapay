@@ -39,6 +39,7 @@ export interface Order {
   buyerEmail: string;
   status: string;
   createdAt: string;
+  couponCode?: string;
 }
 
 export interface InvoiceLine {

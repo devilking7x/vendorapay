@@ -51,6 +51,8 @@ export interface Order {
   buyerEmail: string;
   status: OrderStatus;
   createdAt: string;
+  /** coupon code applied at checkout; consumed only on successful capture */
+  couponCode?: string;
 }
 
 export type InvoiceStatus =
@@ -340,17 +342,26 @@ export function getCoupon(pageId: string, code: string): Coupon | null {
 export function listCoupons(pageId: string): Coupon[] {
   return [...coupons.values()].filter((c) => c.pageId === pageId);
 }
-/** Validate + consume one use. Returns discounted info or an error string. */
-export function applyCoupon(
+/** Validate without consuming. Returns discount info or an error string. */
+export function validateCoupon(
   pageId: string,
   code: string
 ): { coupon: Coupon; percentOff: number } | { error: string } {
   const c = getCoupon(pageId, code);
   if (!c) return { error: "Invalid coupon code." };
   if (c.usedCount >= c.maxUses) return { error: "This coupon has been fully used." };
-  c.usedCount += 1;
-  persist();
   return { coupon: c, percentOff: c.percentOff };
+}
+/** Validate + consume one use. Returns discounted info or an error string. */
+export function applyCoupon(
+  pageId: string,
+  code: string
+): { coupon: Coupon; percentOff: number } | { error: string } {
+  const v = validateCoupon(pageId, code);
+  if ("error" in v) return v;
+  v.coupon.usedCount += 1;
+  persist();
+  return v;
 }
 
 export function getStats(): GlobalStats {

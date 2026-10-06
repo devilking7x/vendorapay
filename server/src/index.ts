@@ -34,6 +34,7 @@ import {
   getSession,
   getStats,
   listCoupons,
+  validateCoupon,
   listInvoices,
   listOrders,
   listPages,
@@ -178,7 +179,7 @@ app.post("/api/orders", async (req, res) => {
   let charge = Number(amount) > 0 ? Number(amount) : product.price;
   let appliedCoupon: string | null = null;
   if (couponCode && typeof couponCode === "string" && couponCode.trim()) {
-    const r = applyCoupon(page.id, couponCode.trim());
+    const r = validateCoupon(page.id, couponCode.trim());
     if ("error" in r) {
       res.status(400).json({ error: r.error });
       return;
@@ -200,6 +201,7 @@ app.post("/api/orders", async (req, res) => {
       buyerEmail: String(buyerEmail ?? "").slice(0, 80) || "buyer@example.com",
       status: "CREATED" as const,
       createdAt: new Date().toISOString(),
+      ...(appliedCoupon ? { couponCode: appliedCoupon } : {}),
     };
     saveOrder(order);
     res.json({ order, approveUrl: pp.approveUrl, paypal: paypalMode(), appliedCoupon });
@@ -261,6 +263,13 @@ app.post("/api/orders/:id/capture", async (req, res) => {
   try {
     const r = await captureOrder(o.paypalOrderId);
     const updated = setOrderStatus(o.id, r.status === "COMPLETED" ? "COMPLETED" : "CAPTURED");
+    // Consume coupon only on successful payment — failed/abandoned checkouts don't burn it
+    if (o.couponCode) {
+      const cr = applyCoupon(o.pageId, o.couponCode);
+      if ("error" in cr) {
+        console.warn(`coupon ${o.couponCode} could not be consumed for order ${o.id}: ${cr.error}`);
+      }
+    }
     res.json({ order: updated, paypal: paypalMode() });
   } catch (e) {
     setOrderStatus(o.id, "FAILED");
