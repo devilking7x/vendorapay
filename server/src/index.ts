@@ -29,11 +29,13 @@ import {
   getPage,
   getPlan,
   getSession,
+  getStats,
   listInvoices,
   listOrders,
   listPages,
   listPlans,
   listSessions,
+  recordView,
   removeProduct,
   rid,
   saveInvoice,
@@ -109,7 +111,12 @@ app.get("/api/pages/:id", (req, res) => {
     res.status(404).json({ error: "page not found" });
     return;
   }
+  recordView(p.id);
   res.json({ page: p, paypal: paypalMode() });
+});
+
+app.get("/api/stats", (_req, res) => {
+  res.json({ stats: getStats() });
 });
 
 app.post("/api/pages/:id/products", (req, res) => {

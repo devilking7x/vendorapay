@@ -5,10 +5,11 @@ import {
   type Invoice,
   type Order,
   type Page,
+  type Stats,
   type SubscriptionPlan,
 } from "../api";
 
-type Tab = "orders" | "invoices" | "plans" | "agent";
+type Tab = "orders" | "invoices" | "plans" | "agent" | "analytics";
 
 function statusChip(s: string) {
   return <span className={`chip status-${s}`}>{s}</span>;
@@ -255,7 +256,7 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
       ) : (
         <>
           <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
-            {(["orders", "invoices", "plans", "agent"] as Tab[]).map((t) => (
+            {(["orders", "invoices", "plans", "agent", "analytics"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -265,6 +266,7 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
                 {t === "invoices" && "🧾 Invoices"}
                 {t === "plans" && "🔁 Subscriptions"}
                 {t === "agent" && "🤖 Agent sales"}
+                {t === "analytics" && "📊 Analytics"}
               </button>
             ))}
           </div>
@@ -515,7 +517,84 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
               )}
             </div>
           )}
+
+          {tab === "analytics" && (
+            <AnalyticsView />
+          )}
         </>
+      )}
+    </div>
+  );
+}
+
+function AnalyticsView() {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api
+      .getStats()
+      .then((r) => setStats(r.stats))
+      .catch((e) => setErr((e as Error).message));
+  }, []);
+  if (err) return <div className="card"><p className="text-red-400 text-sm">{err}</p></div>;
+  if (!stats) return <div className="card"><p className="text-white/50 text-sm">Loading analytics…</p></div>;
+  const cards = [
+    { label: "💰 Revenue", value: `${stats.totalRevenue} ${stats.currency}` },
+    { label: "👁️ Page views", value: String(stats.totalViews) },
+    { label: "🛒 Orders", value: `${stats.paidOrders}/${stats.totalOrders} paid` },
+    { label: "📈 Conversion", value: `${stats.conversion}%` },
+    { label: "🧾 Invoices paid", value: `${stats.invoicesPaid}/${stats.invoicesSent}` },
+    { label: "🤖 Active agent chats", value: String(stats.activeSessions) },
+  ];
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {cards.map((c) => (
+          <div key={c.label} className="card !p-4">
+            <p className="text-xs text-white/50 mb-1">{c.label}</p>
+            <p className="font-display font-extrabold text-xl text-gold">{c.value}</p>
+          </div>
+        ))}
+      </div>
+      {stats.topProducts.length > 0 && (
+        <div className="card">
+          <p className="font-display font-bold mb-3">🏆 Top products by revenue</p>
+          <div className="space-y-2">
+            {stats.topProducts.map((t, i) => (
+              <div key={t.name} className="flex items-center justify-between gap-2">
+                <p className="text-sm truncate">
+                  <span className="text-gold font-bold mr-2">#{i + 1}</span>
+                  {t.name}
+                </p>
+                <p className="text-sm text-white/60 shrink-0">
+                  {t.revenue} {stats.currency} · {t.orders} sold
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {stats.pages.length > 0 && (
+        <div className="card">
+          <p className="font-display font-bold mb-3">📄 Per-page performance</p>
+          <div className="space-y-2">
+            {stats.pages.map((p) => (
+              <div key={p.pageId} className="flex items-center justify-between gap-2 text-sm">
+                <p className="truncate text-white/80">{p.title}</p>
+                <p className="text-white/50 shrink-0 text-xs">
+                  {p.views} views · {p.orders} orders · {p.conversion}%
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {stats.totalViews === 0 && stats.totalOrders === 0 && (
+        <div className="card">
+          <p className="text-white/50 text-sm">
+            No traffic yet — share your page link to start collecting stats! 📣
+          </p>
+        </div>
       )}
     </div>
   );

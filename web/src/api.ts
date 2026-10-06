@@ -238,4 +238,29 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ category, description, currency }),
     }),
+  getStats: () => req<{ stats: Stats }>("/api/stats"),
 };
+
+export interface PageStats {
+  pageId: string;
+  title: string;
+  views: number;
+  orders: number;
+  revenue: number;
+  currency: string;
+  conversion: number;
+}
+export interface Stats {
+  totalPages: number;
+  totalViews: number;
+  totalOrders: number;
+  paidOrders: number;
+  totalRevenue: number;
+  currency: string;
+  conversion: number;
+  invoicesSent: number;
+  invoicesPaid: number;
+  activeSessions: number;
+  pages: PageStats[];
+  topProducts: Array<{ name: string; revenue: number; orders: number }>;
+}

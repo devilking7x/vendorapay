@@ -141,6 +141,7 @@ const orders = new Map<string, Order>();
 const invoices = new Map<string, Invoice>();
 const plans = new Map<string, SubscriptionPlan>();
 const sessions = new Map<string, AgentSession>();
+const views = new Map<string, number>();
 
 function persist() {
   try {
@@ -153,6 +154,7 @@ function persist() {
           invoices: [...invoices.values()],
           plans: [...plans.values()],
           sessions: [...sessions.values()],
+          views: [...views.entries()],
         },
         null,
         2
@@ -172,12 +174,14 @@ function load() {
       invoices?: Invoice[];
       plans?: SubscriptionPlan[];
       sessions?: AgentSession[];
+      views?: Array<[string, number]>;
     };
     for (const p of d.pages ?? []) pages.set(p.id, p);
     for (const o of d.orders ?? []) orders.set(o.id, o);
     for (const i of d.invoices ?? []) invoices.set(i.id, i);
     for (const s of d.plans ?? []) plans.set(s.id, s);
     for (const s of d.sessions ?? []) sessions.set(s.id, s);
+    for (const [k, v] of d.views ?? []) views.set(k, v);
   } catch {
     /* fresh start */
   }
@@ -273,6 +277,101 @@ export function listSessions(pageId?: string): AgentSession[] {
 }
 
 // --- One-click demo storefront (judge-friendly seed) ---
+// --- Page views (analytics) ---
+export function recordView(pageId: string): void {
+  views.set(pageId, (views.get(pageId) ?? 0) + 1);
+  persist();
+}
+export function getPageViews(pageId: string): number {
+  return views.get(pageId) ?? 0;
+}
+export function getAllViews(): Record<string, number> {
+  return Object.fromEntries(views);
+}
+
+// --- Analytics ---
+export interface PageStats {
+  pageId: string;
+  title: string;
+  views: number;
+  orders: number;
+  revenue: number;
+  currency: string;
+  conversion: number; // orders / views as %
+}
+export interface GlobalStats {
+  totalPages: number;
+  totalViews: number;
+  totalOrders: number;
+  paidOrders: number;
+  totalRevenue: number;
+  currency: string;
+  conversion: number;
+  invoicesSent: number;
+  invoicesPaid: number;
+  activeSessions: number;
+  pages: PageStats[];
+  topProducts: Array<{ name: string; revenue: number; orders: number }>;
+}
+export function getStats(): GlobalStats {
+  const allOrders = [...orders.values()];
+  const paid = allOrders.filter((o) =>
+    ["CAPTURED", "COMPLETED"].includes(o.status)
+  );
+  const revenue = paid.reduce((s, o) => s + o.amount, 0);
+  const currency = paid[0]?.currency ?? allOrders[0]?.currency ?? "USD";
+  const totalViews = [...views.values()].reduce((s, v) => s + v, 0);
+  const allInvoices = [...invoices.values()];
+  const pageStats: PageStats[] = [...pages.values()].map((p) => {
+    const po = allOrders.filter((o) => o.pageId === p.id);
+    const pr = po
+      .filter((o) => ["CAPTURED", "COMPLETED"].includes(o.status))
+      .reduce((s, o) => s + o.amount, 0);
+    const v = views.get(p.id) ?? 0;
+    return {
+      pageId: p.id,
+      title: p.title,
+      views: v,
+      orders: po.length,
+      revenue: pr,
+      currency: p.currency,
+      conversion: v > 0 ? Math.round((po.length / v) * 1000) / 10 : 0,
+    };
+  });
+  const prodMap = new Map<string, { revenue: number; orders: number }>();
+  for (const o of paid) {
+    const e = prodMap.get(o.productName) ?? { revenue: 0, orders: 0 };
+    e.revenue += o.amount;
+    e.orders += 1;
+    prodMap.set(o.productName, e);
+  }
+  const topProducts = [...prodMap.entries()]
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
+  return {
+    totalPages: pages.size,
+    totalViews,
+    totalOrders: allOrders.length,
+    paidOrders: paid.length,
+    totalRevenue: Math.round(revenue * 100) / 100,
+    currency,
+    conversion:
+      totalViews > 0
+        ? Math.round((allOrders.length / totalViews) * 1000) / 10
+        : 0,
+    invoicesSent: allInvoices.filter((i) =>
+      ["SENT", "PAID"].includes(i.status)
+    ).length,
+    invoicesPaid: allInvoices.filter((i) => i.status === "PAID").length,
+    activeSessions: [...sessions.values()].filter((s) =>
+      ["active", "awaiting_seller_confirm"].includes(s.state)
+    ).length,
+    pages: pageStats.sort((a, b) => b.revenue - a.revenue),
+    topProducts,
+  };
+}
+
 export function createDemoPage(): Page {
   const p: Page = {
     id: rid("page"),
