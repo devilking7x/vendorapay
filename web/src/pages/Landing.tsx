@@ -81,8 +81,8 @@ export default function Landing({ nav }: { nav: (h: string) => void }) {
               <button className="btn-gold flex-1 text-sm py-2.5" onClick={tryDemo}>
                 💳 Pay with PayPal
               </button>
-              <button className="btn-ghost text-sm py-2.5 px-4" onClick={() => nav("#/build")}>
-                🤖 Haggle with AI
+              <button className="btn-ghost text-sm py-2.5 px-4" onClick={() => nav("#/dashboard")}>
+                🤖 See AI agent
               </button>
             </div>
             <p className="text-white/30 text-[11px] mt-3 text-center">

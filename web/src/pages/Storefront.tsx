@@ -10,6 +10,7 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
   const [coupon, setCoupon] = useState("");
   const [couponApplied, setCouponApplied] = useState<string | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
+  const [approveUrl, setApproveUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [botOpen, setBotOpen] = useState(false);
   const [botQ, setBotQ] = useState("");
@@ -30,6 +31,7 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
   const startCheckout = (p: Product) => {
     setBuying(p);
     setOrder(null);
+    setApproveUrl(null);
     setCoupon("");
     setCouponApplied(null);
     setErr("");
@@ -46,6 +48,7 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
     try {
       const r = await api.createOrder(page.id, buying.id, email, coupon || undefined);
       setOrder(r.order);
+      setApproveUrl(r.approveUrl ?? null);
       if (r.appliedCoupon) setCouponApplied(r.appliedCoupon);
     } catch (e) {
       setErr((e as Error).message);
@@ -220,10 +223,29 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
                     {order.amount} {order.currency}
                   </p>
                 </div>
-                <button onClick={capture} disabled={busy} className="btn-primary w-full">
-                  {busy ? "Processing…" : mode === "mock" ? "✅ Simulate PayPal approval & pay" : "Approve & pay"}
-                </button>
-                <button onClick={() => { setBuying(null); setOrder(null); }} className="btn-ghost w-full mt-2">
+                {approveUrl ? (
+                  <>
+                    <a
+                      href={approveUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-primary w-full text-center block"
+                    >
+                      🔵 Approve on PayPal
+                    </a>
+                    <p className="text-xs text-white/50 mt-2 text-center">
+                      Opens PayPal sandbox in a new tab. After approving, return here and click "Capture payment".
+                    </p>
+                    <button onClick={capture} disabled={busy} className="btn-ghost w-full mt-2">
+                      {busy ? "Processing…" : "Capture payment"}
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={capture} disabled={busy} className="btn-primary w-full">
+                    {busy ? "Processing…" : mode === "mock" ? "✅ Simulate PayPal approval & pay" : "Approve & pay"}
+                  </button>
+                )}
+                <button onClick={() => { setBuying(null); setOrder(null); setApproveUrl(null); }} className="btn-ghost w-full mt-2">
                   Close
                 </button>
               </>
@@ -262,7 +284,9 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
           <div className="flex-1 overflow-y-auto space-y-2 mb-3 min-h-32">
             {botLog.length === 0 && (
               <p className="text-white/40 text-sm">
-                Ask me anything about {page.sellerName !== "Your Studio" ? `${page.sellerName}'s` : "these"} products — prices, delivery, refunds…
+                Ask me anything about{" "}
+                {page.sellerName !== "Your Studio" ? `${page.sellerName}'s` : "these"}{" "}
+                products — prices, delivery, refunds…
               </p>
             )}
             {botLog.map((m, i) => (
