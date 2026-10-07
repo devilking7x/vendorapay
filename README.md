@@ -1,6 +1,13 @@
 # 💸 Vendora Pay AI
 
+[![live](https://img.shields.io/badge/live-vendorapay.onrender.com-brightgreen.svg)](https://vendorapay.onrender.com)
+[![paypal](https://img.shields.io/badge/paypal-sandbox_live-blue.svg)](https://vendorapay.onrender.com)
+[![license](https://img.shields.io/badge/license-MIT-gold.svg)](LICENSE)
+[![tests](https://img.shields.io/badge/e2e-27%2F27-brightgreen.svg)](#-test)
+
 **Sell anything, anywhere — just describe it.** Vendora Pay AI turns a chat message into a working PayPal storefront: AI-built payment pages, smart invoices, subscriptions, and an **agentic salesperson** that negotiates for you — with guardrails.
+
+![Vendora demo](web/public/demo.gif)
 
 Built for the **PayPal AI Hackathon 2026** ($69,750 prizes).
 
