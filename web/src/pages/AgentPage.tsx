@@ -29,6 +29,18 @@ export default function AgentPage({
         // If URL has a page id, honor it — fetch directly even if not in list yet
         if (initialPageId && !pageId) {
           setPageId(initialPageId);
+          // Try direct fetch in case list is stale (ephemeral storage)
+          api.getPage(initialPageId).then((pr) => {
+            setPage(pr.page);
+            const first = pr.page.products[0];
+            if (first) {
+              setProductId(first.id);
+              setMinP(String(first.minPrice));
+              setMaxP(String(first.price));
+            }
+          }).catch(() => {
+            setErr("This storefront is no longer available — demo data resets periodically. Build a new one.");
+          });
           return;
         }
         const pick = r.pages.find((p) => p.id === initialPageId)?.id ?? r.pages[0]?.id ?? "";

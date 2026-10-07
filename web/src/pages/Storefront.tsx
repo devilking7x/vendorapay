@@ -262,7 +262,7 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
           <div className="flex-1 overflow-y-auto space-y-2 mb-3 min-h-32">
             {botLog.length === 0 && (
               <p className="text-white/40 text-sm">
-                Ask me anything about {page.sellerName}'s products — prices, delivery, refunds…
+                Ask me anything about {page.sellerName !== "Your Studio" ? `${page.sellerName}'s` : "these"} products — prices, delivery, refunds…
               </p>
             )}
             {botLog.map((m, i) => (
