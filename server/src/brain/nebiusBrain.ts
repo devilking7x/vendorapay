@@ -52,7 +52,7 @@ export class NebiusBrain implements SalesBrain {
         `"suggestedStrategy":"one-line negotiation strategy within the seller bounds",` +
         `"reasoning":"why you chose this intent"}. ` +
         `Never suggest exceeding the bounds or charging without seller confirmation.`,
-      { maxTokens: 300, temperature: 0.2, timeoutMs: 12000 }
+      { maxTokens: 300, temperature: 0.2, timeoutMs: 25000 }
     );
     if (r?.data && typeof r.data.intent === "string" && (INTENTS as string[]).includes(r.data.intent)) {
       const intent = r.data.intent as BuyerIntent;
@@ -89,7 +89,7 @@ export class NebiusBrain implements SalesBrain {
         `HARD RULES: never claim anything was charged or paid (the seller confirms first); ` +
         `never invent prices; never promise seller approval. ` +
         `Return ONLY JSON: {"text":"...","reasoning":"why you phrased it this way"}.`,
-      { maxTokens: 300, temperature: 0.7, timeoutMs: 12000 }
+      { maxTokens: 300, temperature: 0.7, timeoutMs: 25000 }
     );
     if (r?.data?.text && r.data.text.trim().length > 0) {
       return {
