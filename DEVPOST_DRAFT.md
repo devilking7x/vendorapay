@@ -35,7 +35,7 @@ https://github.com/devilking7x/vendorapay
 ## Demo video
 **Ready to upload:** `~/workspace/your_files/vendora-demo-video.mp4` — 2:11 (under the 3-min rule ✅), 720p, English voiceover. Upload it PUBLIC on YouTube, attach the thumbnail (`~/workspace/your_files/media-generation-vendora-yt-thumbnail-0-*.webp`), then paste the YouTube URL here.
 
-**Uploaded:** https://youtu.be/Bpzuyr9XNX0 — **PUBLIC, verified playable** ✅ (logged-out browser check 2026-10-06 ~11:45 UTC; title: "Pay Al - Turn Words into a PayPal Storefront with an Al Salesperson | PayPal AlHackathon", 2:11). Safe to submit to Devpost.
+**Uploaded:** https://youtu.be/0YhOjmmsm4w — **PUBLIC, verified playable** ✅ (logged-out browser check 2026-10-06 ~11:45 UTC; title: "Pay Al - Turn Words into a PayPal Storefront with an Al Salesperson | PayPal AlHackathon", 2:11). Safe to submit to Devpost.
 
 **Suggested YouTube title:**
 `Vendora Pay AI — AI Storefront Builder with PayPal | PayPal AI Hackathon`

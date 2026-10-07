@@ -7,6 +7,8 @@
 
 **Sell anything, anywhere — just describe it.** Vendora Pay AI turns a chat message into a working PayPal storefront: AI-built payment pages, smart invoices, subscriptions, and an **agentic salesperson** that negotiates for you — with guardrails.
 
+[![Watch the demo](https://img.youtube.com/vi/0YhOjmmsm4w/maxresdefault.jpg)](https://youtu.be/0YhOjmmsm4w)
+
 ![Vendora demo](web/public/demo.gif)
 
 Built for the **PayPal AI Hackathon 2026** ($69,750 prizes).
@@ -32,6 +34,7 @@ Remove PayPal and Vendora is a pretty page generator. With it, it's a business: 
 - **Payments:** PayPal REST (sandbox) — Orders v2, Invoicing v2, Subscriptions (catalogs + billing plans), Webhooks
 - **AI:** NVIDIA Nemotron via Nebius (OpenAI-compatible) when `NEBIUS_API_KEY` is set; honest smart-template fallback otherwise — the UI always labels which engine produced the output
 - **Deploy:** Render (free tier, single service serving API + static web)
+- **Database:** Supabase Postgres (free tier) — durable persistence with graceful fallback
 
 ## Run locally
 
