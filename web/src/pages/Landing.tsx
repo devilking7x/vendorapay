@@ -5,7 +5,7 @@ const FEATURES: Array<{ emoji: string; title: string; desc: string }> = [
   { emoji: "💬", title: "AI Page Builder", desc: "Describe what you sell in chat — AI builds your payment page: title, pricing, FAQ, theme." },
   { emoji: "💳", title: "PayPal Checkout", desc: "Real PayPal Orders API — create & capture payments from buyers anywhere." },
   { emoji: "🧾", title: "Smart Invoices", desc: "AI drafts line items and polite notes; send to any email in one click." },
-  { emoji: "🔁", title: "Subscriptions", desc: "Monthly/yearly retainer plans for recurring revenue." },
+  { emoji: "🔁", title: "Subscriptions", desc: "Monthly/yearly recurring plans for steady revenue." },
   { emoji: "🤖", title: "Agentic Salesperson", desc: "An AI agent that negotiates within YOUR price bounds and only charges after you confirm." },
   { emoji: "💡", title: "Pricing Coach", desc: "AI suggests a fair price range for your category and market." },
   { emoji: "💁", title: "AI Support Bot", desc: "Every storefront gets a chat widget that answers buyer questions from your product data." },
