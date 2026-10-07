@@ -6,28 +6,76 @@
 
 body {
   @apply bg-ink text-cream font-body antialiased;
+  background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(251, 191, 36, 0.06), transparent);
+  background-attachment: fixed;
+}
+
+/* ---------- Premium gold utilities ---------- */
+.text-gold-gradient {
+  @apply font-display font-extrabold;
+  background: linear-gradient(135deg, #fde68a 0%, #fbbf24 45%, #b45309 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .card {
   @apply bg-pine/80 border border-white/10 rounded-2xl p-5 backdrop-blur;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: all 0.25s ease;
+}
+.card-premium:hover {
+  @apply border-gold/30;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 24px rgba(251, 191, 36, 0.12);
+  transform: translateY(-2px);
 }
 
 .btn-primary {
   @apply bg-gradient-to-r from-mint to-gold text-ink font-bold px-6 py-3 rounded-xl
     hover:opacity-90 active:scale-[0.98] transition disabled:opacity-40 disabled:pointer-events-none;
+  box-shadow: 0 4px 20px rgba(251, 191, 36, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.btn-primary:hover {
+  box-shadow: 0 6px 28px rgba(251, 191, 36, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-gold {
+  @apply font-display font-bold px-6 py-3 rounded-xl text-ink
+    active:scale-[0.98] transition disabled:opacity-40 disabled:pointer-events-none;
+  background: linear-gradient(135deg, #fde68a 0%, #fbbf24 50%, #d97706 100%);
+  box-shadow: 0 4px 20px rgba(251, 191, 36, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.btn-gold:hover {
+  box-shadow: 0 6px 32px rgba(251, 191, 36, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  filter: brightness(1.05);
 }
 
 .btn-ghost {
   @apply border border-white/20 px-6 py-3 rounded-xl hover:bg-white/5 transition font-medium;
 }
+.btn-ghost:hover {
+  @apply border-gold/40;
+}
 
 .input {
   @apply w-full bg-ink/60 border border-white/15 rounded-xl px-4 py-3
     placeholder:text-white/30 focus:outline-none focus:border-mint transition;
+  backdrop-filter: blur(8px);
+}
+.input:focus {
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.15);
 }
 
 .chip {
   @apply inline-flex items-center gap-1 text-xs bg-white/10 rounded-full px-3 py-1;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.chip-gold {
+  @apply inline-flex items-center gap-1 text-xs rounded-full px-3 py-1 font-semibold;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fde68a;
 }
 
 .tab-btn {
@@ -36,7 +84,30 @@ body {
 }
 .tab-btn.active {
   @apply border-mint bg-mint/15 text-white;
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.2);
 }
+
+/* ---------- Entrance animations ---------- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fadeUp 0.5s ease both; }
+.animate-fade-up-1 { animation: fadeUp 0.5s 0.08s ease both; }
+.animate-fade-up-2 { animation: fadeUp 0.5s 0.16s ease both; }
+.animate-fade-up-3 { animation: fadeUp 0.5s 0.24s ease both; }
+
+@keyframes goldPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.3); }
+  50% { box-shadow: 0 0 20px 4px rgba(251, 191, 36, 0.4); }
+}
+.animate-gold-pulse { animation: goldPulse 2s ease-in-out infinite; }
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(251, 191, 36, 0.25); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(251, 191, 36, 0.4); }
 
 .status-CREATED { @apply bg-white/10 text-white; }
 .status-APPROVED { @apply bg-sky-500/20 text-sky-300; }
