@@ -108,7 +108,7 @@ export default function Storefront({ id, nav }: { id: string; nav: (h: string) =
         }}
       >
         <div className="max-w-3xl mx-auto">
-          <p className="text-sm text-white/50 mb-2">by{" "}{page.sellerName}</p>
+          <p className="text-sm text-white/50 mb-2">{page.sellerName !== "Your Studio" && <>by{" "}{page.sellerName}</>}</p>
           <h1 className="font-display font-extrabold text-3xl sm:text-5xl tracking-tight">
             {page.title}
           </h1>

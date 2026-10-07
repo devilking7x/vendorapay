@@ -26,6 +26,11 @@ export default function AgentPage({
       .listPages()
       .then((r) => {
         setPages(r.pages.map((p) => ({ id: p.id, title: p.title })));
+        // If URL has a page id, honor it — fetch directly even if not in list yet
+        if (initialPageId && !pageId) {
+          setPageId(initialPageId);
+          return;
+        }
         const pick = r.pages.find((p) => p.id === initialPageId)?.id ?? r.pages[0]?.id ?? "";
         if (pick && !pageId) setPageId(pick);
       })
