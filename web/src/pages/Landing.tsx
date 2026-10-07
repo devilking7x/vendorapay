@@ -64,6 +64,32 @@ export default function Landing({ nav }: { nav: (h: string) => void }) {
         <p className="text-white/30 text-xs mt-4">
           Runs on PayPal sandbox — no real money moves. Add your own sandbox keys for full control.
         </p>
+
+        {/* Live product preview */}
+        <div className="max-w-md mx-auto mt-10 animate-fade-up-2">
+          <div className="card card-premium text-left relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-mint via-gold to-mint"></div>
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="chip-gold mb-2">✨ AI-generated</p>
+                <h3 className="font-display font-bold text-lg">Lavender Dream Soy Candle</h3>
+                <p className="text-white/50 text-xs mt-1">Hand-poured · 8oz · 45h burn time</p>
+              </div>
+              <p className="font-display font-extrabold text-2xl text-gold-gradient">$18</p>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn-gold flex-1 text-sm py-2.5" onClick={tryDemo}>
+                💳 Pay with PayPal
+              </button>
+              <button className="btn-ghost text-sm py-2.5 px-4" onClick={() => nav("#/build")}>
+                🤖 Haggle with AI
+              </button>
+            </div>
+            <p className="text-white/30 text-[11px] mt-3 text-center">
+              This is what buyers see — built from a single chat message
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* How it works */}
@@ -92,13 +118,18 @@ export default function Landing({ nav }: { nav: (h: string) => void }) {
           Everything a seller needs
         </h2>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="card">
-              <div className="text-2xl mb-2">{f.emoji}</div>
+          {FEATURES.map((f, i) => {
+            const anim = ["animate-fade-up", "animate-fade-up-1", "animate-fade-up-2", "animate-fade-up-3"][i % 4];
+            return (
+            <div key={f.title} className={`card card-premium ${anim}`}>
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-mint/30 to-gold/30 border border-gold/20 flex items-center justify-center text-2xl mb-3 shadow-lg">
+                {f.emoji}
+              </div>
               <h3 className="font-display font-bold mb-1">{f.title}</h3>
               <p className="text-white/60 text-sm">{f.desc}</p>
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
