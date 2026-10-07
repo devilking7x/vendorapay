@@ -1,6 +1,9 @@
-// Vendora Pay AI — in-memory store with JSON file persistence.
+// Vendora Pay AI — in-memory store with JSON file + Supabase persistence.
+// Supabase (if SUPABASE_URL + SUPABASE_SERVICE_KEY are set) is the durable
+// backing store; the JSON file remains as a local fallback.
 import fs from "node:fs";
 import path from "node:path";
+import { sbLoad, sbSave, supabaseConfigured } from "./db.js";
 
 export interface ProductFAQ {
   q: string;
@@ -186,62 +189,81 @@ const abandonedCarts = new Map<string, AbandonedCart>(); // key: orderId
 let upsellsSuggested = 0;
 let upsellsAccepted = 0;
 
+const SB_KEY = "vendora_store_v1";
+
+function dump(): Record<string, unknown> {
+  return {
+    pages: [...pages.values()],
+    orders: [...orders.values()],
+    invoices: [...invoices.values()],
+    plans: [...plans.values()],
+    sessions: [...sessions.values()],
+    views: [...views.entries()],
+    coupons: [...coupons.values()],
+    abandonedCarts: [...abandonedCarts.values()],
+    returns: [...returns.values()],
+    upsellsSuggested,
+    upsellsAccepted,
+  };
+}
+
 function persist() {
   try {
-    fs.writeFileSync(
-      DATA_FILE,
-      JSON.stringify(
-        {
-          pages: [...pages.values()],
-          orders: [...orders.values()],
-          invoices: [...invoices.values()],
-          plans: [...plans.values()],
-          sessions: [...sessions.values()],
-          views: [...views.entries()],
-          coupons: [...coupons.values()],
-          abandonedCarts: [...abandonedCarts.values()],
-          returns: [...returns.values()],
-          upsellsSuggested,
-          upsellsAccepted,
-        },
-        null,
-        2
-      )
-    );
+    fs.writeFileSync(DATA_FILE, JSON.stringify(dump(), null, 2));
   } catch {
     /* best effort */
   }
+  // Durable backing store — fire and forget, never blocks the request.
+  if (supabaseConfigured()) {
+    sbSave(SB_KEY, dump()).then((ok) => {
+      if (!ok) console.warn("[store] Supabase persist failed — file fallback active");
+    });
+  }
+}
+
+type StoreDump = {
+  pages?: Page[];
+  orders?: Order[];
+  invoices?: Invoice[];
+  plans?: SubscriptionPlan[];
+  sessions?: AgentSession[];
+  views?: Array<[string, number]>;
+  coupons?: Coupon[];
+  abandonedCarts?: AbandonedCart[];
+  returns?: ReturnRequest[];
+  upsellsSuggested?: number;
+  upsellsAccepted?: number;
+};
+
+function applyDump(d: StoreDump) {
+  for (const p of d.pages ?? []) pages.set(p.id, p);
+  for (const o of d.orders ?? []) orders.set(o.id, o);
+  for (const i of d.invoices ?? []) invoices.set(i.id, i);
+  for (const s of d.plans ?? []) plans.set(s.id, s);
+  for (const s of d.sessions ?? []) sessions.set(s.id, s);
+  for (const [k, v] of d.views ?? []) views.set(k, v);
+  for (const c of d.coupons ?? []) coupons.set(couponKey(c.pageId, c.code), c);
+  for (const c of d.abandonedCarts ?? []) abandonedCarts.set(c.orderId, c);
+  for (const r of d.returns ?? []) returns.set(r.id, r);
+  if (typeof d.upsellsSuggested === "number") upsellsSuggested = d.upsellsSuggested;
+  if (typeof d.upsellsAccepted === "number") upsellsAccepted = d.upsellsAccepted;
 }
 
 function load() {
   try {
     const raw = fs.readFileSync(DATA_FILE, "utf8");
-    const d = JSON.parse(raw) as {
-      pages?: Page[];
-      orders?: Order[];
-      invoices?: Invoice[];
-      plans?: SubscriptionPlan[];
-      sessions?: AgentSession[];
-      views?: Array<[string, number]>;
-      coupons?: Coupon[];
-      abandonedCarts?: AbandonedCart[];
-      returns?: ReturnRequest[];
-      upsellsSuggested?: number;
-      upsellsAccepted?: number;
-    };
-    for (const p of d.pages ?? []) pages.set(p.id, p);
-    for (const o of d.orders ?? []) orders.set(o.id, o);
-    for (const i of d.invoices ?? []) invoices.set(i.id, i);
-    for (const s of d.plans ?? []) plans.set(s.id, s);
-    for (const s of d.sessions ?? []) sessions.set(s.id, s);
-    for (const [k, v] of d.views ?? []) views.set(k, v);
-    for (const c of d.coupons ?? []) coupons.set(couponKey(c.pageId, c.code), c);
-    for (const c of d.abandonedCarts ?? []) abandonedCarts.set(c.orderId, c);
-    for (const r of d.returns ?? []) returns.set(r.id, r);
-    if (typeof d.upsellsSuggested === "number") upsellsSuggested = d.upsellsSuggested;
-    if (typeof d.upsellsAccepted === "number") upsellsAccepted = d.upsellsAccepted;
+    applyDump(JSON.parse(raw) as StoreDump);
   } catch {
     /* fresh start */
+  }
+  // Prefer the durable Supabase copy when configured (async, best effort).
+  if (supabaseConfigured()) {
+    sbLoad(SB_KEY).then((d) => {
+      if (d) {
+        applyDump(d as StoreDump);
+        console.log("[store] loaded durable state from Supabase");
+      }
+    });
   }
 }
 

@@ -4,6 +4,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { agentStep, confirmSession, declineSession, startSession } from "./agent.js";
+import { supabaseConfigured } from "./db.js";
 import {
   buildPageFromChat,
   draftDisputeResponse,
@@ -89,6 +90,7 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     paypal: paypalMode(),
     ai: aiMode(),
+    db: supabaseConfigured() ? "supabase" : "ephemeral",
     time: new Date().toISOString(),
   });
 });
