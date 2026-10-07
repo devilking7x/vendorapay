@@ -26,7 +26,9 @@ const EXAMPLES = [
 ];
 
 export default function Builder({ nav }: { nav: (h: string) => void }) {
-  const [desc, setDesc] = useState("");
+  const [desc, setDesc] = useState(
+    () => sessionStorage.getItem("vendorapay:buildDesc") ?? ""
+  );
   const [seller, setSeller] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [building, setBuilding] = useState(false);
@@ -184,7 +186,10 @@ export default function Builder({ nav }: { nav: (h: string) => void }) {
               className="input min-h-24 flex-1"
               placeholder='e.g. "I sell logo design for $50, 3 revisions included"'
               value={desc}
-              onChange={(e) => setDesc(e.target.value)}
+              onChange={(e) => {
+                setDesc(e.target.value);
+                sessionStorage.setItem("vendorapay:buildDesc", e.target.value);
+              }}
             />
             <button
               onClick={toggleMic}

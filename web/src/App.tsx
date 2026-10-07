@@ -69,7 +69,7 @@ export default function App() {
                 🧪 demo mode
               </span>
             )}
-            {mode === "live" && <span className="chip bg-mint/15 text-mint">🟢 live PayPal</span>}
+            {mode === "live" && <span className="chip bg-mint/15 text-mint">●&nbsp;Live PayPal</span>}
             {ai === "nebius" && <span className="chip hidden sm:inline-flex">✨ Nebius AI</span>}
           </nav>
         </div>

@@ -372,15 +372,33 @@ export async function supportAnswer(
   question: string
 ): Promise<{ answer: string; engine: AIEngine }> {
   const q = question.toLowerCase();
-  // 1. Direct FAQ hit (deterministic, always first)
+  // 1. Direct FAQ hit (deterministic, always first).
+  // Requires a MEANINGFUL overlap: ignore stop-words, and require either
+  // 2+ matching words or 1 matching word longer than 5 chars. This prevents
+  // generic words like "what"/"your" from triggering the wrong FAQ.
+  const STOP = new Set([
+    "what", "when", "where", "which", "who", "whom", "whose", "how", "why",
+    "your", "yours", "their", "theirs", "this", "that", "these", "those",
+    "with", "from", "about", "does", "have", "has", "are", "was", "were",
+    "will", "would", "could", "should", "there", "here", "please", "tell",
+  ]);
+  let best: { score: number; answer: string } | null = null;
   for (const p of page.products) {
     for (const f of p.faq) {
-      const words = f.q.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-      if (words.some((w) => q.includes(w))) {
-        return { answer: f.a, engine: "template" };
+      const words = f.q
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((w) => w.length > 3 && !STOP.has(w));
+      const hits = words.filter((w) => q.includes(w));
+      const strongHits = hits.filter((w) => w.length > 5);
+      const score = hits.length * 2 + strongHits.length;
+      // Need real topical overlap: 2+ word hits, or 1 strong (>5 char) hit
+      if ((hits.length >= 2 || strongHits.length >= 1) && (!best || score > best.score)) {
+        best = { score, answer: f.a };
       }
     }
   }
+  if (best) return { answer: best.answer, engine: "template" };
   // 2. Product/price questions answered from real page data
   const money = /price|cost|much|charge|fee/i.test(q);
   for (const p of page.products) {

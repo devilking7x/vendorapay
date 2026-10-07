@@ -81,6 +81,13 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
 
   useEffect(() => {
     loadPages();
+    // Re-fetch when the user navigates back to the dashboard via header —
+    // the component may already be mounted so the mount effect won't refire.
+    const onHash = () => {
+      if ((window.location.hash || "#/") === "#/dashboard") loadPages();
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
   useEffect(() => {
     if (pageId) {
@@ -129,8 +136,10 @@ export default function Dashboard({ nav }: { nav: (h: string) => void }) {
     }
     setBusy("inv");
     try {
-      await api.createInvoice(pageId, invProduct, invEmail);
+      const r = await api.createInvoice(pageId, invProduct, invEmail);
       setInvEmail("");
+      // Optimistic update — don't rely solely on the refetch
+      if (r?.invoice) setInvoices((prev) => [r.invoice, ...prev]);
       refresh();
     } catch (e) {
       setErr((e as Error).message);
